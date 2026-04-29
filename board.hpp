@@ -282,7 +282,9 @@ struct movegen {
             constexpr std::array<int, 4> dirs{move::UP, move::DOWN, move::LEFT, move::RIGHT};
             for (int dir: dirs) {
                 if (move::valid_normal(idx, dir)) {
-                    moves.push_back(move::make_normal(idx, m_board.heights[idx], dir));
+                    if (!(m_board.occ[m_board.side2move ^ 1] & (1ull << (idx + dir))) ||
+                        m_board.heights[idx] > m_board.heights[idx + dir])
+                        moves.push_back(move::make_normal(idx, m_board.heights[idx], dir));
                 }
             }
         }
