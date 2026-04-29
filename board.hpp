@@ -35,6 +35,7 @@ struct move {
     // move dir
     int dir;
 
+    int _score = 0;
 
     std::array<int8_t, SIDES * SIDES> old_heights;
     std::array<uint64_t, SIDES> old_occ;
@@ -51,6 +52,10 @@ struct move {
         return {.expand = true, .height = 0, .square = square, .dir = dir, .old_heights = {}, .old_occ = {}};
     }
 
+    static move none() {
+        return {.expand = false, .height = 0, .square = 64, .dir = 0, .old_heights = {}, .old_occ = {}};
+    }
+
     static bool valid_normal(int square, int dir) {
         int row = square / SIZE;
         int col = square % SIZE;
@@ -63,8 +68,14 @@ struct move {
                 return col > 0;
             case RIGHT:
                 return col < (SIZE - 1);
+            default:
+                std::cerr << "valid_normal failed\n";
+                exit(1);
         }
     }
+
+    int score() const { return _score; }
+    bool is_none() const { return (square == 64); }
 
     int type() const {
         if (dir == NONE)
@@ -92,6 +103,9 @@ struct move {
                 return col();
             case RIGHT:
                 return SIZE - col() - 1;
+            default:
+                std::cerr << "edge_distance failed\n";
+                exit(1);
         }
     }
 
@@ -106,6 +120,9 @@ struct move {
             case EXPAND:
                 std::cout << "EXPAND (" << row() + 1 << "/" << col() + 1 << "," << dir << ")";
                 break;
+            default:
+                std::cerr << "display failed\n";
+                exit(1);
         }
     }
 };
@@ -115,6 +132,11 @@ struct piece {
     int8_t height;
 };
 
+struct zobrist {
+    uint64_t pst[12][64][2];
+    uint64_t stage[2];
+    uint64_t side2move[2];
+};
 
 struct board {
     std::array<int8_t, SIZE * SIZE> heights;
@@ -148,7 +170,6 @@ struct board {
 
                 std::array<int, SIZE> shifts{};
 
-                // TODO: optimize power here
                 int limit = m.edge_distance();
                 int power = (int) heights[m.square] - 1;
                 int before = power;
@@ -158,6 +179,8 @@ struct board {
                         shifts[step] = before;
                     } else {
                         before -= 1;
+                        if (before == 0)
+                            break;
                     }
                 }
 
@@ -195,13 +218,18 @@ struct board {
 
                 break;
             }
+            default:
+                std::cerr << "make_move failed\n";
+                exit(1);
         }
 
         side2move ^= 1;
         moves += 1;
     }
 
-    void unmake_move(const move &m) {}
+    void unmake_move(const move &m) {
+        // TODO:
+    }
 
     int get_state() const {
         if (moves < DROPS)
@@ -244,6 +272,9 @@ struct board {
                     std::cout << "| ";
                     break;
                 }
+                default:
+                    std::cerr << "display failed\n";
+                    exit(1);
             }
 
             if (i % SIZE == (SIZE - 1))

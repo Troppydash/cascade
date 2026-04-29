@@ -1,5 +1,6 @@
 #include <iostream>
 #include "board.hpp"
+#include "engine.hpp"
 
 void loop() {
     board b = board::startpos();
