@@ -7,7 +7,7 @@ constexpr int HEIGHT = 12;
 constexpr int SIZE = 8;
 constexpr int SIDES = 2;
 constexpr int DROPS = 4 * 2;
-constexpr int DRAW_LENGTH = 100;
+constexpr int DRAW_LENGTH = 200;
 constexpr int PLACE_SIZE = 3;
 
 constexpr int WHITE = 0;
@@ -28,6 +28,8 @@ struct move {
 
     // expand
     bool expand;
+    // original height
+    int height;
     // src square
     int square;
     // move dir
@@ -38,15 +40,30 @@ struct move {
     std::array<uint64_t, SIDES> old_occ;
 
     static move make_drop(int square) {
-        return {.expand = false, .square = square, .dir = 0, .old_heights = {}, .old_occ = {}};
+        return {.expand = false, .height = 0, .square = square, .dir = 0, .old_heights = {}, .old_occ = {}};
     }
 
-    static move make_normal(int square, int dir) {
-        return {.expand = false, .square = square, .dir = dir, .old_heights = {}, .old_occ = {}};
+    static move make_normal(int square, int height, int dir) {
+        return {.expand = false, .height = height, .square = square, .dir = dir, .old_heights = {}, .old_occ = {}};
     }
 
     static move make_expand(int square, int dir) {
-        return {.expand = true, .square = square, .dir = dir, .old_heights = {}, .old_occ = {}};
+        return {.expand = true, .height = 0, .square = square, .dir = dir, .old_heights = {}, .old_occ = {}};
+    }
+
+    static bool valid_normal(int square, int dir) {
+        int row = square / SIZE;
+        int col = square % SIZE;
+        switch (dir) {
+            case UP:
+                return row > 0;
+            case DOWN:
+                return row < (SIZE - 1);
+            case LEFT:
+                return col > 0;
+            case RIGHT:
+                return col < (SIZE - 1);
+        }
     }
 
     int type() const {
@@ -77,6 +94,20 @@ struct move {
                 return SIZE - col() - 1;
         }
     }
+
+    void display() const {
+        switch (type()) {
+            case PLACE:
+                std::cout << "Place (" << row() + 1 << "/" << col() + 1 << ")";
+                break;
+            case NORMAL:
+                std::cout << "MOVE (" << row() + 1 << "/" << col() + 1 << "," << dir << ")";
+                break;
+            case EXPAND:
+                std::cout << "EXPAND (" << row() + 1 << "/" << col() + 1 << "," << dir << ")";
+                break;
+        }
+    }
 };
 
 struct piece {
@@ -98,16 +129,15 @@ struct board {
     void make_move(move &m) {
         switch (m.type()) {
             case move::NORMAL: {
-                heights[m.to()] = heights[m.square];
+                heights[m.to()] += heights[m.square];
                 heights[m.square] = 0;
-                occ[side2move] ^= (1ull << m.square) | (1ull << m.to());
+                occ[side2move] ^= (1ull << m.square);
+                occ[side2move] |= (1ull << m.to());
                 break;
             }
             case move::PLACE: {
                 heights[m.square] += PLACE_SIZE;
                 occ[side2move] |= (1ull << m.square);
-
-
                 break;
             }
             case move::EXPAND: {
@@ -204,12 +234,15 @@ struct board {
             switch (p.side) {
                 case WHITE: {
                     std::cout << "|" << RED << (std::to_string(p.height)) << RESET;
+                    break;
                 }
                 case BLACK: {
                     std::cout << "|" << BLUE << (std::to_string(p.height)) << RESET;
+                    break;
                 }
                 case NONE: {
                     std::cout << "| ";
+                    break;
                 }
             }
 
@@ -227,10 +260,10 @@ struct movegen {
     const board &m_board;
 
     std::vector<move> get_drops() {
-        uint64_t occ = ~m_board.occ[~m_board.side2move];
+        uint64_t occ = ~m_board.occ[m_board.side2move ^ 1];
         std::vector<move> moves{};
         while (occ) {
-            int idx = __builtin_ctz(occ);
+            int idx = __builtin_ctzll(occ);
             occ ^= (1ull << idx);
 
             moves.push_back(move::make_drop(idx));
@@ -243,14 +276,13 @@ struct movegen {
         uint64_t occ = m_board.occ[m_board.side2move];
         std::vector<move> moves{};
         while (occ) {
-            int idx = __builtin_ctz(occ);
+            int idx = __builtin_ctzll(occ);
             occ ^= (1ull << idx);
 
             constexpr std::array<int, 4> dirs{move::UP, move::DOWN, move::LEFT, move::RIGHT};
             for (int dir: dirs) {
-                move m = move::make_normal(idx, dir);
-                if (m.edge_distance() >= 0) {
-                    moves.push_back(m);
+                if (move::valid_normal(idx, dir)) {
+                    moves.push_back(move::make_normal(idx, m_board.heights[idx], dir));
                 }
             }
         }
@@ -262,8 +294,12 @@ struct movegen {
         uint64_t occ = m_board.occ[m_board.side2move];
         std::vector<move> moves{};
         while (occ) {
-            int idx = __builtin_ctz(occ);
+            int idx = __builtin_ctzll(occ);
             occ ^= (1ull << idx);
+
+            if (m_board.heights[idx] == 1) {
+                continue;
+            }
 
             constexpr std::array<int, 4> dirs{move::UP, move::DOWN, move::LEFT, move::RIGHT};
             for (int dir: dirs) {
@@ -271,5 +307,17 @@ struct movegen {
             }
         }
         return moves;
+    }
+
+    std::vector<move> get_valids() {
+        if (m_board.is_drop()) {
+            return get_drops();
+        }
+
+        auto expands = get_expands();
+        auto normals = get_normals();
+        expands.insert(expands.end(), std::make_move_iterator(normals.begin()), std::make_move_iterator(normals.end()));
+
+        return expands;
     }
 };
