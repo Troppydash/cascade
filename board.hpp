@@ -6,6 +6,7 @@
 #include <array>
 #include <cstring>
 #include <format>
+#include <cassert>
 #include "color.hpp"
 
 constexpr int HEIGHT = 12;
@@ -43,16 +44,19 @@ struct move
 
     static move make_drop(int square)
     {
+        assert(square >= 0 && square < 64);
         return { .expand = false, .square = square, .dir = NONE };
     }
 
     static move make_normal(int square, int height, int dir)
     {
+        assert(square >= 0 && square < 64);
         return { .expand = false, .square = square, .dir = dir };
     }
 
     static move make_expand(int square, int dir)
     {
+        assert(square >= 0 && square < 64);
         return { .expand = true,  .square = square, .dir = dir };
     }
 
@@ -95,7 +99,12 @@ struct move
         return EXPAND;
     }
 
-    int to() const { return square + dir; }
+    int to() const
+    {
+        assert(square + dir >= 0);
+        assert(square + dir < 64);
+        return square + dir;
+    }
 
     int row() const { return square / SIZE; }
 
@@ -145,9 +154,27 @@ struct move
         case PLACE:
             return std::format("P{}{}", row() + 1, col() + 1);
         case NORMAL:
-            return std::format("N{}{}{}{}", row() + 1, col() + 1, to() / SIZE + 1, to() % SIZE + 1);
+            return std::format("N{}{}{}{}", row() + 1, col() + 1, (to() / SIZE) + 1, (to() % SIZE) + 1);
         case EXPAND:
-            return std::format("E{}{}{}{}", row() + 1, col() + 1, to() / SIZE + 1, to() % SIZE + 1);
+        {
+            int value = 0;
+            switch (dir)
+            {
+            case UP:
+                value = 0;
+                break;
+            case DOWN:
+                value = 1;
+                break;
+            case LEFT:
+                value = 2;
+                break;
+            case RIGHT:
+                value = 1;
+                break;
+            }
+            return std::format("E{}{}{}", row() + 1, col() + 1, value);
+        }
         default:
             std::cerr << "display failed\n";
             exit(1);
@@ -327,6 +354,7 @@ struct board
 
     void unmake_move(const move& m)
     {
+        assert(past_length > 0);
         past_length -= 1;
         moves -= 1;
         side2move ^= 1;
