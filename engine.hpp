@@ -187,6 +187,11 @@ struct movepick {
                 }
 
                 case PV: {
+                    m_stage++;
+                    if (!m_pv.is_none()) {
+                        return m_pv;
+                    }
+                    break;
                 }
                 case CAPTURE_INIT: {
                 }
