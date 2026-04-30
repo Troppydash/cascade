@@ -705,6 +705,12 @@ struct engine
             std::cout << "\n";
         }
 
+        // print stats
+        std::cout << "info" << " depth " << res.depth << " score " << score_to_cp(res.score) << " nodes " << nodes;
+        for (int i = 0; i < m_ss[SS_HEAD].pv_length; ++i)
+            std::cout << " " << m_ss[SS_HEAD].pv_line[i].str();
+        std::cout << "\n";
+
         return res;
     }
 };
