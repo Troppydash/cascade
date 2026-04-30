@@ -1,6 +1,9 @@
 #pragma once
 
 #include <cinttypes>
+#include <vector>
+#include <array>
+#include <cstring>
 #include "color.hpp"
 
 constexpr int HEIGHT = 12;
@@ -164,8 +167,8 @@ struct board {
             }
             case move::EXPAND: {
                 // copy move
-                std::memcpy(&m.old_heights, &heights, sizeof(heights));
-                std::memcpy(&m.old_occ, &occ, sizeof(occ));
+                std::memcpy(m.old_heights.data(), heights.data(), heights.size() * sizeof(int8_t));
+                std::memcpy(m.old_occ.data(), occ.data(), occ.size() * sizeof(uint64_t));
 
 
                 std::array<int, SIZE> shifts{};
@@ -210,7 +213,7 @@ struct board {
                     if (step <= power) {
                         heights[sq] = 1;
                         occ[side2move] |= (1ull << sq);
-                        occ[~side2move] &= ~(1ull << sq);
+                        occ[side2move ^ 1] &= ~(1ull << sq);
                     }
                 }
 
@@ -236,7 +239,7 @@ struct board {
             return NONE;
 
         if (occ[side2move] == 0)
-            return ~side2move;
+            return side2move ^ 1;
 
         if (moves >= DRAW_LENGTH)
             return DRAW;
@@ -283,6 +286,7 @@ struct board {
 
         std::cout << "state " << get_state() << "\n";
         std::cout << "side2move " << side2move << "\n";
+        std::cout << "moves " << moves << "\n";
         std::cout << "is_drop " << (moves < DROPS ? "true" : "false") << "\n";
     }
 };

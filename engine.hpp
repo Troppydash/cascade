@@ -1,6 +1,9 @@
 #pragma once
 
 #include "board.hpp"
+#include <format>
+#include <vector>
+#include <chrono>
 
 constexpr int MAX_DEPTH = 128;
 constexpr int SS_HEAD = 10;
