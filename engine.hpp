@@ -267,7 +267,7 @@ struct movepick
     std::vector<move> moves[2];
 
     // negamax
-    explicit movepick(move pv, const board& board, const heuristics& heur) : m_pv(pv), m_board(board), m_heur(heur)
+    explicit movepick(const move& pv, const board& board, const heuristics& heur) : m_pv(pv), m_board(board), m_heur(heur)
     {
         if (m_board.is_drop())
             m_stage = DROP_PV;
@@ -283,7 +283,7 @@ struct movepick
             {
             case DROP_PV: {
                 m_stage++;
-                if (!m_pv.is_none())
+                if (!m_pv.is_none() && m_board.is_legal(m_pv))
                 {
                     return m_pv;
                 }
@@ -312,21 +312,57 @@ struct movepick
 
             case PV: {
                 m_stage++;
-                if (!m_pv.is_none())
+                if (!m_pv.is_none() && m_board.is_legal(m_pv))
                 {
                     return m_pv;
                 }
                 break;
             }
             case CAPTURE_INIT: {
+                movegen gen{ m_board };
+                moves[0] = gen.get_captures();
+                move_ptr[0] = 0;
+                move_ptr[1] = 0;
+
+                // score moves
+
+                m_stage++;
+                break;
             }
             case GOOD_CAPTURE: {
+                // TODO: move to bad captures
+                move_ptr[0] = pick_move(moves[0], move_ptr[0], moves[0].size(), [](auto&) { return true; });
+                if (move_ptr[0] < moves[0].size())
+                    return moves[0][move_ptr[0]++];
+
+                m_stage++;
+                break;
             }
             case QUIET_INIT: {
+                movegen gen{ m_board };
+                moves[0] = gen.get_quiets();
+                move_ptr[0] = 0;
+
+                // score moves
+
+                m_stage++;
+                break;
             }
             case QUIET: {
+                move_ptr[0] = pick_move(moves[0], move_ptr[0], moves[0].size(), [](auto&) { return true; });
+                if (move_ptr[0] < moves[0].size())
+                    return moves[0][move_ptr[0]++];
+
+                m_stage++;
+                break;
             }
             case BAD_EXPAND: {
+                move_ptr[1] = pick_move(moves[1], move_ptr[1], moves[1].size(), [](auto&) { return true; });
+                if (move_ptr[1] < moves[1].size())
+                    return moves[1][move_ptr[1]++];
+
+                m_stage = DONE;
+                break;
             }
 
             case DONE: {
