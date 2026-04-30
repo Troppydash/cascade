@@ -2,8 +2,10 @@
 
 #include <cinttypes>
 #include <vector>
+#include <random>
 #include <array>
 #include <cstring>
+#include <format>
 #include "color.hpp"
 
 constexpr int HEIGHT = 12;
@@ -135,6 +137,22 @@ struct move
             exit(1);
         }
     }
+
+    std::string str() const
+    {
+        switch (type())
+        {
+        case PLACE:
+            return std::format("P{}{}", row() + 1, col() + 1);
+        case NORMAL:
+            return std::format("N{}{}{}{}", row() + 1, col() + 1, to() / SIZE + 1, to() % SIZE + 1);
+        case EXPAND:
+            return std::format("E{}{}{}{}", row() + 1, col() + 1, to() / SIZE + 1, to() % SIZE + 1);
+        default:
+            std::cerr << "display failed\n";
+            exit(1);
+        }
+    }
 };
 
 struct piece
@@ -148,6 +166,40 @@ struct zobrist
     uint64_t pst[12][64][2];
     uint64_t stage[2];
     uint64_t side2move[2];
+
+    // Delete copy constructor and assignment operator to prevent duplicates
+    zobrist(const zobrist&) = delete;
+    zobrist& operator=(const zobrist&) = delete;
+
+    // Static access method
+    static zobrist& get()
+    {
+        static zobrist instance;
+        return instance;
+    }
+
+private:
+    explicit zobrist()
+    {
+        init_keys();
+    }
+
+    void init_keys()
+    {
+        std::mt19937_64 gen(42); // Seeded for reproducibility
+        std::uniform_int_distribution<uint64_t> dist;
+
+        for (int p = 0; p < 12; ++p)
+            for (int s = 0; s < 64; ++s)
+                for (int t = 0; t < 2; ++t)
+                    pst[p][s][t] = dist(gen);
+
+        for (int i = 0; i < 2; ++i)
+        {
+            stage[i] = dist(gen);
+            side2move[i] = dist(gen);
+        }
+    }
 };
 
 struct board
@@ -157,11 +209,13 @@ struct board
 
     int side2move;
     int moves;
+    uint64_t hash;
 
     struct history
     {
         std::array<int8_t, SIZE* SIZE> heights;
         std::array<uint64_t, SIDES> occ;
+        uint64_t hash;
     };
 
     int past_length;
@@ -171,6 +225,8 @@ struct board
 
     void make_move(move& m)
     {
+        past[past_length + 1].hash = hash;
+
         switch (m.type())
         {
         case move::NORMAL: {
@@ -182,6 +238,8 @@ struct board
             heights[m.square] = 0;
             occ[side2move] ^= (1ull << m.square);
             occ[side2move] |= (1ull << m.to());
+
+            // TODO: boring zob hash update
             break;
         }
         case move::PLACE: {
@@ -261,6 +319,7 @@ struct board
             exit(1);
         }
 
+        past[past_length].hash = hash;
         side2move ^= 1;
         moves += 1;
         past_length += 1;
@@ -298,6 +357,11 @@ struct board
         }
     }
 
+    uint64_t get_hash() const
+    {
+        return hash;
+    }
+
     int get_state() const
     {
         if (moves < DROPS)
@@ -310,6 +374,11 @@ struct board
             return DRAW;
 
         return NONE;
+    }
+
+    bool is_repetition(int ply) const
+    {
+        return false;
     }
 
     piece at(int index) const
@@ -360,7 +429,7 @@ struct board
         }
     }
 
-    int expand_pushoffs(const move &m) const
+    int expand_pushoffs(const move& m) const
     {
         // TODO
         return true;

@@ -231,7 +231,20 @@ struct tt
 
 struct heuristics
 {
-    // main history
+    int lmr[64][64];
+
+    explicit heuristics()
+    {
+        // set lmr
+        for (int depth = 1; depth < 64; ++depth)
+            for (int move = 1; move < 64; ++move)
+                lmr[depth][move] = std::floor(0.99 + std::log(depth) * std::log(move) / 3.14);
+    }
+
+    [[nodiscard]] int get_lmr(int depth, int move) const
+    {
+        return lmr[std::min(63, depth)][std::min(63, move)];
+    }
 };
 
 struct movepick
@@ -422,6 +435,15 @@ struct search_stack
         static_eval = VALUE_NONE;
         pv_length = 0;
     }
+
+    void pv_update(const move& m, search_stack* next)
+    {
+        pv_length = next->pv_length + 1;
+        pv_line[0] = m;
+
+        for (int i = 0; i < next->pv_length; ++i)
+            pv_line[1 + i] = next->pv_line[i];
+    }
 };
 
 struct engine
@@ -438,18 +460,34 @@ struct engine
     timer m_timer;
     int64_t nodes;
 
-    explicit engine(board board) : m_board(board) {}
+    tt m_tt;
+    heuristics m_heuristic;
 
-    int negamax(int alpha, int beta, search_stack* ss)
+    explicit engine(const board& board) : m_board(board), m_tt(64), m_heuristic() {}
+
+    int evaluate()
+    {
+        return 0;
+    }
+
+    template <bool is_pv_node>
+    int negamax(int alpha, int beta, int depth, search_stack* ss, bool cut_node)
     {
         ss->pv_length = 0;
         nodes += 1;
-        if (nodes & 4095)
+        if ((nodes & 4095) == 0)
         {
             m_timer.check();
             if (m_timer.is_stopped())
                 return 0;
         }
+
+        if (ss->ply >= MAX_DEPTH - 5)
+            return evaluate();
+
+
+        if (depth <= 0)
+            return evaluate();
 
         // terminal check
         int state = m_board.get_state();
@@ -461,22 +499,148 @@ struct engine
             return -INF + ss->ply;
         }
 
+        bool is_root = ss->ply == 0 && is_pv_node;
+
+        // mate distance pruning
+        if (!is_root)
+        {
+            alpha = std::max(alpha, MATED_IN(ss->ply));
+            beta = std::min(beta, MATE_IN(ss->ply + 1));
+            if (alpha >= beta)
+                return alpha;
+        }
+
+        // repetition
+        if (!is_root && m_board.is_repetition(ss->ply))
+            return VALUE_DRAW;
+
+
         // tt lookup
+        uint64_t key = m_board.get_hash();
+        tt::entry* entry = m_tt.get_entry(key);
+        tt::entry::data tt_data = entry->get(key, ss->ply, depth, alpha, beta);
+
+        // early tt cutoff
+        if (!is_pv_node && tt_data.can_use && (cut_node == (tt_data.score >= beta)) && tt_data.depth >= depth + (tt_data.score >= beta))
+            return tt_data.score;
+
+        int unadjusted_static_score = VALUE_NONE;
+        int adjusted_static_score = VALUE_NONE;
+        if (tt_data.hit)
+        {
+            unadjusted_static_score = tt_data.static_score;
+            if (!IS_VALID(unadjusted_static_score))
+                unadjusted_static_score = evaluate();
+
+            adjusted_static_score = unadjusted_static_score;
+
+            bool bound_hit =
+                tt_data.flag == EXACT_FLAG ||
+                (tt_data.flag == BETA_FLAG && tt_data.score > adjusted_static_score)
+                || (tt_data.flag == ALPHA_FLAG && tt_data.score < adjusted_static_score);
+            if (IS_VALID(tt_data.score) && !IS_DECISIVE(tt_data.score) && bound_hit)
+            {
+                adjusted_static_score = tt_data.score;
+            }
+        }
+        else
+        {
+            unadjusted_static_score = evaluate();
+            adjusted_static_score = unadjusted_static_score;
+
+            entry->set(key, NO_FLAG, VALUE_NONE, ss->ply, UNSEARCHED_DEPTH, move::none(), unadjusted_static_score);
+        }
 
         // pruning
 
         // negamax
+        movepick gen{ tt_data.m, m_board, m_heuristic };
+        move m;
+        int move_count = 0;
+        int score;
+        int best_score = -INF;
+        move best_move = move::none();
+        while (!(m = gen.next_move()).is_none())
+        {
+            move_count += 1;
+
+            int new_depth = depth - 1;
+            m_board.make_move(m);
+
+            if (depth >= 2 && move_count > 1 + 2 * is_root)
+            {
+                int reduction = m_heuristic.get_lmr(depth, move_count);
+
+                if (cut_node)
+                    reduction += 2;
+
+                reduction -= is_pv_node;
+
+                int reduced_depth = std::clamp(new_depth - reduction, 1, new_depth + 1);
+                score = -negamax<false>(-(alpha + 1), -alpha, reduced_depth, ss + 1, true);
+                if (score > alpha && reduced_depth < new_depth)
+                {
+                    if (reduced_depth < new_depth)
+                        score = -negamax<false>(-(alpha + 1), -alpha, new_depth, ss + 1, !cut_node);
+                }
+            }
+            else if (!is_pv_node || move_count > 1)
+            {
+                score = -negamax<false>(-(alpha + 1), -alpha, new_depth, ss + 1, !cut_node);
+            }
+
+            if (is_pv_node && (move_count == 1 || score > alpha))
+            {
+                score = -negamax<true>(-beta, -alpha, new_depth, ss + 1, false);
+            }
+
+            m_board.unmake_move(m);
+
+            if (m_timer.is_stopped())
+                return 0;
+
+            if (score > best_score)
+            {
+                best_score = score;
+
+                if (score > alpha)
+                {
+                    best_move = m;
+                    if (is_pv_node)
+                        ss->pv_update(best_move, ss + 1);
+
+                    if (score >= beta)
+                        break;
+
+                    alpha = score;
+                }
+            }
+
+            // malus
+        }
 
         // history update
+        if (best_score >= beta)
+        {
+            // TODO:
+        }
+
+        int flag = best_score >= beta ? BETA_FLAG : is_pv_node && !best_move.is_none() ? EXACT_FLAG : ALPHA_FLAG;
+
+        entry->set(key, flag, best_score, ss->ply, depth, best_move, unadjusted_static_score);
+
+        return best_score;
     }
 
 
-    result search()
+    result search(int64_t max_time, int64_t opt_time)
     {
+        m_timer.start(opt_time, max_time);
 
         // setup search stack
         for (int i = 0; i < SS_HEAD; ++i)
         {
+            m_ss[i].reset();
         }
 
         for (int i = 0; i < MAX_DEPTH; ++i)
@@ -503,7 +667,7 @@ struct engine
             // asp window search
             while (true)
             {
-                int score = negamax(alpha, beta, &m_ss[SS_HEAD]);
+                int score = negamax<true>(alpha, beta, depth, &m_ss[SS_HEAD], false);
                 if (m_timer.is_stopped())
                     break;
 
@@ -535,8 +699,10 @@ struct engine
                 break;
 
             // print stats
-            std::cout << "info" << " depth " << depth << " score " << score_to_cp(res.score) << " nodes " << nodes
-                << "\n";
+            std::cout << "info" << " depth " << depth << " score " << score_to_cp(res.score) << " nodes " << nodes;
+            for (int i = 0; i < m_ss[SS_HEAD].pv_length; ++i)
+                std::cout << " " << m_ss[SS_HEAD].pv_line[i].str();
+            std::cout << "\n";
         }
 
         return res;

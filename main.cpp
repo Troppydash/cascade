@@ -21,7 +21,14 @@ void loop() {
     }
 }
 
+void search() {
+    board b = board::startpos();
+
+    engine eng{b};
+    eng.search(1000, 1000);
+}
+
 int main() {
-    loop();
+    search();
     return 0;
 }
