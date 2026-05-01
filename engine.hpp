@@ -212,12 +212,17 @@ struct heuristics {
     history_entry<int, 20000> capture_history[13][64];
     history_entry<int, 20000> expand_history[13][64][4];
 
+    std::array<move, 2> killers[MAX_DEPTH];
+
 
     explicit heuristics() {
         // set lmr
         for (int depth = 1; depth < 64; ++depth)
             for (int move = 1; move < 64; ++move)
-                lmr[depth][move] = std::floor(0.99 + std::log(depth) * std::log(move) / 3.14);
+                lmr[depth][move] = std::floor(0.99 + std::log(depth) * std::log(move) / 2.0);
+
+        for (auto &m: killers)
+            m[0] = m[1] = move::none();
     }
 
     [[nodiscard]] int get_lmr(int depth, int move) const { return lmr[std::min(63, depth)][std::min(63, move)]; }
@@ -237,7 +242,7 @@ struct evaluator {
             int sq_value = sq * 10;
 
             for (int j = 0; j < 13; ++j) {
-                int height_value = j * 20;
+                int height_value = j * 20 + j * j * 5;
                 pst[i][j] = 50 + sq_value + height_value;
             }
         }
@@ -300,15 +305,16 @@ struct movepick {
     const board &m_board;
     const heuristics &m_heur;
     const evaluator &m_eval;
+    int m_ply;
 
     int move_ptr;
     int bad_moves;
     std::vector<move> moves;
 
     // negamax, qsearch
-    explicit movepick(const move &pv, const board &board, const heuristics &heur, const evaluator &eval,
+    explicit movepick(const move &pv, const board &board, int ply, const heuristics &heur, const evaluator &eval,
                       stage st = PV) :
-        m_pv(pv), m_board(board), m_heur(heur), m_eval(eval), move_ptr{0}, moves{}, bad_moves{} {
+        m_pv(pv), m_board(board), m_heur(heur), m_eval(eval), m_ply(ply), move_ptr{0}, moves{}, bad_moves{} {
         if (m_board.is_drop())
             m_stage = DROP_PV;
         else
@@ -417,7 +423,7 @@ struct movepick {
                 }
                 case GOOD_CAPTURE: {
                     move_ptr = pick_move(moves, move_ptr, moves.size(), [this](move &m) {
-                        if (m.type() == move::EXPAND && this->eval_expand_pushoffs(m) < 50) {
+                        if (m.type() == move::EXPAND && this->eval_expand_pushoffs(m) < 20) {
                             std::swap(moves[bad_moves++], m);
                             return false;
                         } else {
@@ -442,6 +448,11 @@ struct movepick {
                         auto &m = moves[i];
 
                         m.score = m_heur.main_history[m.square][m.to()].get_value();
+
+                        if (m == m_heur.killers[m_ply][0])
+                            m.score = 32000;
+                        else if (m == m_heur.killers[m_ply][1])
+                            m.score = 31000;
                     }
 
                     sort_moves(moves, move_ptr, moves.size());
@@ -503,7 +514,7 @@ struct movepick {
                 }
                 case QCAPTURE: {
                     move_ptr = pick_move(moves, move_ptr, moves.size(), [this](auto &m) {
-                        return m.type() != move::EXPAND || this->eval_expand_pushoffs(m) > 100;
+                        return m.type() != move::EXPAND || this->eval_expand_pushoffs(m) > 50;
                     });
                     if (move_ptr < moves.size())
                         return moves[move_ptr++];
@@ -676,7 +687,7 @@ struct engine {
         int score;
         move best_move = move::none();
         move m = move::none();
-        movepick gen{tt_data.m, m_board, m_heuristic, m_evaluator, movepick::stage::QPV};
+        movepick gen{tt_data.m, m_board, ss->ply, m_heuristic, m_evaluator, movepick::stage::QPV};
         int move_count = 0;
         while (!(m = gen.next_move()).is_none()) {
             move_count += 1;
@@ -823,9 +834,12 @@ struct engine {
                 return null_score;
         }
 
+        // iir
+        if ((is_pv_node || cut_node) && depth >= 2 && tt_data.m.is_none())
+            depth -= 1;
 
         // negamax
-        movepick gen{tt_data.m, m_board, m_heuristic, m_evaluator, movepick::stage::PV};
+        movepick gen{tt_data.m, m_board, ss->ply, m_heuristic, m_evaluator, movepick::stage::PV};
         move m;
         int move_count = 0;
         int score;
@@ -907,21 +921,29 @@ struct engine {
 
         // history update
         if (best_score >= beta) {
-            int bonus = 150 * depth - 30;
-            int malus = 150 * depth - 30;
+            int bonus = 200 * depth - 30;
+            int malus = 200 * depth - 30;
 
             if (m_board.is_drop()) {
+                assert(best_move.type() == move::PLACE);
                 m_heuristic.drop_history[m_board.heights[best_move.square]][best_move.square].add_bonus(bonus);
                 for (auto &m: drop_moves)
                     m_heuristic.drop_history[m_board.heights[m.square]][m.square].add_bonus(-malus);
             } else {
+                assert(best_move.type() != move::PLACE);
                 switch (best_move.type()) {
                     case move::NORMAL: {
                         if (m_board.at(best_move.to()).side != m_board.side2move) {
                             m_heuristic.capture_history[m_board.heights[best_move.square]][best_move.to()].add_bonus(
                                     bonus);
                         } else {
+                            // quiet cutoff
                             m_heuristic.main_history[best_move.square][best_move.to()].add_bonus(bonus);
+
+                            if (m_heuristic.killers[ss->ply][0] == m) {
+                                m_heuristic.killers[ss->ply][1] = m_heuristic.killers[ss->ply][0];
+                            }
+                            m_heuristic.killers[ss->ply][0] = m;
 
                             for (auto &m: quiet_moves)
                                 m_heuristic.main_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
@@ -937,10 +959,12 @@ struct engine {
 
                         break;
                     }
+                    default:
+                        std::cerr << "wrong best_move type\n";
+                        exit(0);
                 }
 
                 // always penaltize capture/expands
-
                 for (auto &m: capture_moves)
                     m_heuristic.capture_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
 

@@ -55,6 +55,10 @@ struct move {
         return {.expand = true, .square = square, .dir = dir};
     }
 
+    constexpr bool operator==(const move &other) const {
+        return expand == other.expand && square == other.square && dir == other.dir;
+    }
+
     static move none() { return {.expand = false, .square = 64, .dir = 0}; }
 
     static bool valid_normal(int square, int dir) {
@@ -481,7 +485,7 @@ struct board {
             }
             case move::PLACE: {
                 auto start = at(m.square);
-                if (start.side == side2move ^ 1)
+                if (start.side == (side2move ^ 1))
                     return false;
 
                 return true;
