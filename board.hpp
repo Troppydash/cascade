@@ -356,15 +356,21 @@ struct board
             for (int step = 1; step <= limit; ++step)
             {
                 int sq = m.square + m.dir * step;
+                assert(sq < 64 && sq >= 0);
                 if ((occ[0] | occ[1]) & (1ull << sq))
                 {
                     shifts[step] = before;
                 }
                 else
                 {
+                    shifts[step] = 0;
+
                     before -= 1;
                     if (before == 0)
+                    {
+                        limit = step;
                         break;
+                    }
                 }
             }
 
@@ -382,12 +388,23 @@ struct board
                         int shift_sq = m.square + m.dir * (step + shift);
 
                         auto shift_sq_data = at(shift_sq);
-                        hash ^= zob.pst[shift_sq_data.height][shift_sq][shift_sq_data.side];
-                        hash ^= zob.pst[sq_data.height][shift_sq][sq_data.side];
+                        if (shift_sq_data.side == NONE)
+                        {
+                            hash ^= zob.pst[sq_data.height][shift_sq][sq_data.side];
 
-                        heights[shift_sq] = heights[sq];
-                        occ[shift_sq_data.side] ^= (1ull << shift_sq);
-                        occ[sq_data.side] |= (1ull << shift_sq);
+                            heights[shift_sq] = heights[sq];
+                            occ[sq_data.side] |= (1ull << shift_sq);
+                        }
+                        else
+                        {
+                            hash ^= zob.pst[shift_sq_data.height][shift_sq][shift_sq_data.side];
+                            hash ^= zob.pst[sq_data.height][shift_sq][sq_data.side];
+
+                            heights[shift_sq] = heights[sq];
+                            occ[shift_sq_data.side] ^= (1ull << shift_sq);
+                            occ[sq_data.side] |= (1ull << shift_sq);
+                        }
+
                     }
 
                     // clear current
@@ -498,6 +515,7 @@ struct board
 
     piece at(int index) const
     {
+        assert(index >= 0 && index < 64);
         if (occ[0] & (1ull << index))
             return { .side = 0, .height = heights[index] };
 
@@ -672,22 +690,22 @@ struct movegen
         // expands
         uint64_t occ = m_board.occ[m_board.side2move];
         std::vector<move> moves{};
-        // while (occ)
-        // {
-        //     int idx = __builtin_ctzll(occ);
-        //     occ ^= (1ull << idx);
+        while (occ)
+        {
+            int idx = __builtin_ctzll(occ);
+            occ ^= (1ull << idx);
 
-        //     if (m_board.heights[idx] == 1)
-        //     {
-        //         continue;
-        //     }
+            if (m_board.heights[idx] == 1)
+            {
+                continue;
+            }
 
-        //     constexpr std::array<int, 4> dirs{ move::UP, move::DOWN, move::LEFT, move::RIGHT };
-        //     for (int dir : dirs)
-        //     {
-        //         moves.push_back(move::make_expand(idx, dir));
-        //     }
-        // }
+            constexpr std::array<int, 4> dirs{ move::UP, move::DOWN, move::LEFT, move::RIGHT };
+            for (int dir : dirs)
+            {
+                moves.push_back(move::make_expand(idx, dir));
+            }
+        }
 
         // captures
         occ = m_board.occ[m_board.side2move];

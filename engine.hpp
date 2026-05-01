@@ -489,7 +489,7 @@ struct evaluator
             for (int j = 0; j < 13; ++j)
             {
                 int height_value = j * 20;
-                pst[i][j] = 100 + sq_value + height_value;
+                pst[i][j] = 50 + sq_value + height_value;
             }
         }
     }
@@ -517,14 +517,14 @@ struct evaluator
         }
 
         // drop tempo
-        if (board.is_drop())
-        {
-            total += 10;
-        }
-        else
-        {
-            total += 30;
-        }
+        // if (board.is_drop())
+        // {
+        //     total += 10;
+        // }
+        // else
+        // {
+        //     total += 30;
+        // }
 
         return total;
     }
@@ -595,13 +595,6 @@ struct engine
                 return 0;
         }
 
-        if (ss->ply >= MAX_DEPTH - 5)
-            return evaluate();
-
-
-        if (depth <= 0)
-            return evaluate();
-
         // terminal check
         int state = m_board.get_state();
         if (state != NONE)
@@ -612,16 +605,24 @@ struct engine
             return -INF + ss->ply;
         }
 
+        if (ss->ply >= MAX_DEPTH - 5)
+            return evaluate();
+
+
+        if (depth <= 0)
+            return evaluate();
+
+
         bool is_root = ss->ply == 0 && is_pv_node;
 
         // mate distance pruning
-        // if (!is_root)
-        // {
-        //     alpha = std::max(alpha, MATED_IN(ss->ply));
-        //     beta = std::min(beta, MATE_IN(ss->ply + 1));
-        //     if (alpha >= beta)
-        //         return alpha;
-        // }
+        if (!is_root)
+        {
+            alpha = std::max(alpha, MATED_IN(ss->ply));
+            beta = std::min(beta, MATE_IN(ss->ply + 1));
+            if (alpha >= beta)
+                return alpha;
+        }
 
         // repetition
         if (!is_root && m_board.is_repetition(ss->ply))
