@@ -40,7 +40,7 @@ struct move
     // move dir
     int dir;
 
-    int _score = 0;
+    int score = 0;
 
     static move make_drop(int square)
     {
@@ -85,7 +85,6 @@ struct move
         }
     }
 
-    int score() const { return _score; }
     bool is_none() const { return (square == 64); }
 
     int type() const
@@ -525,6 +524,8 @@ struct board
             return true;
         }
         }
+
+        exit(0);
     }
 
     int expand_pushoffs(const move& m) const

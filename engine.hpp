@@ -229,9 +229,31 @@ struct tt
     }
 };
 
+template <typename I, I LIMIT> struct history_entry
+{
+    I value = 0;
+
+    I get_value() const
+    {
+        return value;
+    }
+
+    void add_bonus(int bonus)
+    {
+        I clamped_bonus = std::clamp(bonus, -LIMIT, LIMIT);
+        value += clamped_bonus - static_cast<int32_t>(value) * std::abs(clamped_bonus) / LIMIT;
+    }
+};
+
 struct heuristics
 {
     int lmr[64][64];
+
+    history_entry<int, 20000> drop_history[13][64];
+    history_entry<int, 20000> main_history[64][64];
+    history_entry<int, 20000> capture_history[13][64];
+    history_entry<int, 20000> expand_history[13][64];
+
 
     explicit heuristics()
     {
@@ -308,8 +330,13 @@ struct movepick
                 moves = gen.get_drops();
                 move_ptr = 0;
 
-                // order moves
+                for (int i = 0; i < moves.size(); ++i)
+                {
+                    auto& m = moves[i];
+                    m.score = m_heur.drop_history[m_board.heights[m.square]][m.square].get_value();
+                }
 
+                sort_moves(moves, 0, moves.size());
 
                 m_stage++;
                 break;
@@ -338,6 +365,25 @@ struct movepick
                 move_ptr = 0;
 
                 // score moves
+                for (int i = 0; i < moves.size(); ++i)
+                {
+                    auto& m = moves[i];
+
+                    if (m.type() == move::NORMAL)
+                    {
+                        m.score = m_heur.capture_history[m_board.heights[m.square]][m.to()].get_value() - m_board.heights[m.square] * 2;
+                    }
+                    else
+                    {
+                        m.score = m_heur.expand_history[m_board.heights[m.square]][m.to()].get_value() - m_board.heights[m.square] * 2;
+                    }
+
+                    std::cout << m.score << "\n";
+                }
+
+
+                sort_moves(moves, 0, moves.size());
+
 
                 m_stage++;
                 break;
@@ -357,6 +403,14 @@ struct movepick
                 move_ptr = 0;
 
                 // score moves
+                for (int i = 0; i < moves.size(); ++i)
+                {
+                    auto& m = moves[i];
+
+                    m.score = m_heur.main_history[m.square][m.to()].get_value();
+                }
+
+                sort_moves(moves, 0, moves.size());
 
                 m_stage++;
                 break;
@@ -406,11 +460,11 @@ struct movepick
     {
         for (int i = start + 1; i < end; ++i)
         {
-            if (moves[i].score() >= limit)
+            if (moves[i].score >= limit)
             {
                 move temp = moves[i];
                 int j = i - 1;
-                while (j >= start && moves[j].score() < temp.score())
+                while (j >= start && moves[j].score < temp.score)
                 {
                     moves[j + 1] = moves[j];
                     j--;
@@ -621,6 +675,10 @@ struct engine
         int score;
         int best_score = -INF;
         move best_move = move::none();
+        std::vector<move> drop_moves{};
+        std::vector<move> capture_moves{};
+        std::vector<move> expand_moves{};
+        std::vector<move> quiet_moves{};
         while (!(m = gen.next_move()).is_none())
         {
             move_count += 1;
@@ -681,12 +739,75 @@ struct engine
             }
 
             // malus
+            switch (m.type())
+            {
+            case move::PLACE: {
+                drop_moves.push_back(m);
+                break;
+            }
+            case move::EXPAND: {
+                expand_moves.push_back(m);
+                break;
+            }
+            case move::NORMAL: {
+                if (m_board.at(m.to()).side != m_board.side2move)
+                {
+                    capture_moves.push_back(m);
+                }
+                else
+                {
+                    quiet_moves.push_back(m);
+                }
+            }
+            }
         }
 
         // history update
         if (best_score >= beta)
         {
-            // TODO:
+            int bonus = 150 * depth - 30;
+            int malus = 150 * depth - 30;
+
+            if (m_board.is_drop())
+            {
+                m_heuristic.drop_history[m_board.heights[best_move.square]][best_move.square].add_bonus(bonus);
+                for (auto& m : drop_moves)
+                    m_heuristic.drop_history[m_board.heights[m.square]][m.square].add_bonus(-malus);
+            }
+            else
+            {
+                switch (best_move.type())
+                {
+                case move::NORMAL: {
+                    if (m_board.at(best_move.to()).side != m_board.side2move)
+                    {
+                        m_heuristic.capture_history[m_board.heights[best_move.square]][best_move.to()].add_bonus(bonus);
+                    }
+                    else
+                    {
+                        m_heuristic.main_history[best_move.square][best_move.to()].add_bonus(bonus);
+
+                        for (auto& m : quiet_moves)
+                            m_heuristic.main_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
+                    }
+
+                    break;
+                }
+                case move::EXPAND: {
+                    m_heuristic.expand_history[m_board.heights[best_move.square]][best_move.to()].add_bonus(bonus);
+
+                    break;
+                }
+                }
+
+                // always penaltize capture/expands
+
+                for (auto& m : capture_moves)
+                    m_heuristic.capture_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
+
+                for (auto& m : expand_moves)
+                    m_heuristic.expand_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
+            }
         }
 
         int flag = best_score >= beta ? BETA_FLAG : is_pv_node && !best_move.is_none() ? EXACT_FLAG : ALPHA_FLAG;
