@@ -471,6 +471,13 @@ struct board {
     bool is_drop() const { return moves < DROPS; }
 
     bool is_legal(const move &m) const {
+        assert(!m.is_none());
+        if (is_drop() && m.type() != move::PLACE)
+            return false;
+
+        if (!is_drop() && m.type() == move::PLACE)
+            return false;
+
         switch (m.type()) {
             case move::NORMAL: {
                 auto start = at(m.square);

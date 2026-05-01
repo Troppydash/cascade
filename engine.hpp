@@ -242,7 +242,7 @@ struct evaluator {
             int sq_value = sq * 10;
 
             for (int j = 0; j < 13; ++j) {
-                int height_value = j * 20 + j * j * 5;
+                int height_value = j * 20 + j * j * 3;
                 pst[i][j] = 50 + sq_value + height_value;
             }
         }
@@ -865,6 +865,8 @@ struct engine {
 
                 reduction -= is_pv_node;
 
+                reduction -= m.score / 10000;
+
                 int reduced_depth = std::clamp(new_depth - reduction, 1, new_depth + 1);
                 score = -negamax<false>(-(alpha + 1), -alpha, reduced_depth, ss + 1, true);
                 if (score > alpha && reduced_depth < new_depth) {
@@ -960,6 +962,8 @@ struct engine {
                         break;
                     }
                     default:
+                        m_board.display();
+                        std::cerr << best_move.str() << std::endl;
                         std::cerr << "wrong best_move type\n";
                         exit(0);
                 }
