@@ -420,6 +420,63 @@ struct movepick
     }
 };
 
+struct evaluator
+{
+    // note that 100 is 1 piece
+    int pst[64][13];
+
+    explicit evaluator()
+    {
+        // create pst
+        for (int i = 0; i < 64; ++i)
+        {
+            int row = i / 8;
+            int col = i % 8;
+            int sq = 3 - std::abs(row - 3) + 3 - std::abs(col - 3);
+            int sq_value = sq * 10;
+
+            for (int j = 0; j < 13; ++j)
+            {
+                int height_value = j * 20;
+                pst[i][j] = 100 + sq_value + height_value;
+            }
+        }
+    }
+
+    int evaluate(const board& board)
+    {
+        int total = 0;
+
+        uint64_t occ = board.occ[0] | board.occ[1];
+        while (occ)
+        {
+            int i = __builtin_ctzll(occ);
+            occ ^= (1ull << i);
+
+            if (board.occ[board.side2move] & (1ull << i))
+            {
+                total += pst[i][board.heights[i]];
+            }
+            else
+            {
+                total -= pst[i][board.heights[i]];
+            }
+        }
+
+        // drop tempo
+        if (board.is_drop())
+        {
+            total += 10;
+        }
+        else
+        {
+            total += 30;
+        }
+
+        return total;
+    }
+};
+
 struct search_stack
 {
     int ply;
@@ -462,12 +519,13 @@ struct engine
 
     tt m_tt;
     heuristics m_heuristic;
+    evaluator m_evaluator;
 
-    explicit engine(const board& board) : m_board(board), m_tt(64), m_heuristic() {}
+    explicit engine(const board& board) : m_board(board), m_tt(64), m_heuristic(), m_evaluator() {}
 
     int evaluate()
     {
-        return 0;
+        return m_evaluator.evaluate(m_board);
     }
 
     template <bool is_pv_node>
@@ -521,8 +579,8 @@ struct engine
         tt::entry::data tt_data = entry->get(key, ss->ply, depth, alpha, beta);
 
         // early tt cutoff
-        if (!is_pv_node && tt_data.can_use && (cut_node == (tt_data.score >= beta)) && tt_data.depth >= depth + (tt_data.score >= beta))
-            return tt_data.score;
+        // if (!is_pv_node && tt_data.can_use && (cut_node == (tt_data.score >= beta)) && tt_data.depth >= depth + (tt_data.score >= beta))
+        //     return tt_data.score;
 
         int unadjusted_static_score = VALUE_NONE;
         int adjusted_static_score = VALUE_NONE;
@@ -565,16 +623,17 @@ struct engine
             move_count += 1;
 
             int new_depth = depth - 1;
+            auto h = m_board.get_hash();
             m_board.make_move(m);
 
             if (depth >= 2 && move_count > 1 + 2 * is_root)
             {
                 int reduction = m_heuristic.get_lmr(depth, move_count);
 
-                if (cut_node)
-                    reduction += 2;
+                // if (cut_node)
+                //     reduction += 2;
 
-                reduction -= is_pv_node;
+                // reduction -= is_pv_node;
 
                 int reduced_depth = std::clamp(new_depth - reduction, 1, new_depth + 1);
                 score = -negamax<false>(-(alpha + 1), -alpha, reduced_depth, ss + 1, true);
@@ -595,6 +654,10 @@ struct engine
             }
 
             m_board.unmake_move(m);
+            if (m_board.get_hash() != h)
+                std::cout << "before " << h << " after " << m_board.get_hash() << std::endl;
+            // m_board.display();
+            // exit(0);
 
             if (m_timer.is_stopped())
                 return 0;

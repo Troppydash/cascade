@@ -191,8 +191,8 @@ struct piece
 struct zobrist
 {
     uint64_t pst[12][64][2];
-    uint64_t stage[2];
-    uint64_t side2move[2];
+    uint64_t stage;
+    uint64_t side2move;
 
     // Delete copy constructor and assignment operator to prevent duplicates
     zobrist(const zobrist&) = delete;
@@ -221,11 +221,8 @@ private:
                 for (int t = 0; t < 2; ++t)
                     pst[p][s][t] = dist(gen);
 
-        for (int i = 0; i < 2; ++i)
-        {
-            stage[i] = dist(gen);
-            side2move[i] = dist(gen);
-        }
+        stage = dist(gen);
+        side2move = dist(gen);
     }
 };
 
@@ -236,7 +233,6 @@ struct board
 
     int side2move;
     int moves;
-    uint64_t hash;
 
     struct history
     {
@@ -248,37 +244,84 @@ struct board
     int past_length;
     std::array<history, DRAW_LENGTH + 1> past;
 
-    static board startpos() { return { .heights = {}, .occ = {}, .side2move = WHITE, .moves = 0, .past_length = 0, .past = {} }; }
+    static board startpos()
+    {
+        board start = { .heights = {}, .occ = {}, .side2move = WHITE, .moves = 0, .past_length = 0, .past = {} };
+
+        // create first history
+        start.past[0].heights = start.heights;
+        start.past[0].occ = start.occ;
+        const zobrist& zob = zobrist::get();
+        start.past[0].hash = zob.side2move;
+
+        return start;
+    }
 
     void make_move(move& m)
     {
-        past[past_length + 1].hash = hash;
+        const zobrist& zob = zobrist::get();
+        uint64_t hash = past[past_length].hash;
+        hash ^= zob.side2move;
+        if (moves + 1 == DROPS)
+            hash ^= zob.stage;
 
         switch (m.type())
         {
         case move::NORMAL: {
             past[past_length].heights[m.square] = heights[m.square];
             past[past_length].heights[m.to()] = heights[m.to()];
-            std::memcpy(past[past_length].occ.data(), occ.data(), occ.size() * sizeof(uint64_t));
+            past[past_length].occ = occ;
 
-            heights[m.to()] += heights[m.square];
+            hash ^= zob.pst[heights[m.square]][m.square][side2move];
             heights[m.square] = 0;
             occ[side2move] ^= (1ull << m.square);
-            occ[side2move] |= (1ull << m.to());
 
-            // TODO: boring zob hash update
+            if (occ[side2move ^ 1] & (1ull << m.to()))
+            {
+                // capture
+                hash ^= zob.pst[heights[m.square]][m.to()][side2move];
+                hash ^= zob.pst[heights[m.to()]][m.to()][side2move ^ 1];
+
+                heights[m.to()] = heights[m.square];
+                occ[side2move] |= (1ull << m.to());
+                occ[side2move ^ 1] ^= (1ull << m.to());
+            }
+            else if (occ[side2move] & (1ull << m.to()))
+            {
+                // stack
+                hash ^= zob.pst[heights[m.to()]][m.to()][side2move];
+                heights[m.to()] += heights[m.square];
+                hash ^= zob.pst[heights[m.to()]][m.to()][side2move];
+            }
+            else
+            {
+                // normal
+                hash ^= zob.pst[heights[m.square]][m.to()][side2move];
+
+                heights[m.to()] = heights[m.square];
+                occ[side2move] |= (1ull << m.to());
+            }
+
             break;
         }
         case move::PLACE: {
+            if (occ[side2move] & (1ull << m.square))
+            {
+                hash ^= zob.pst[heights[m.square]][m.square][side2move];
+            }
+            else
+            {
+                occ[side2move] |= (1ull << m.square);
+            }
+
             heights[m.square] += PLACE_SIZE;
-            occ[side2move] |= (1ull << m.square);
+            hash ^= zob.pst[heights[m.square]][m.square][side2move];
             break;
         }
         case move::EXPAND: {
             // save
-            std::memcpy(past[past_length].heights.data(), heights.data(), heights.size() * sizeof(int8_t));
-            std::memcpy(past[past_length].occ.data(), occ.data(), occ.size() * sizeof(uint64_t));
-
+            past[past_length].heights = heights;
+            past[past_length].occ = occ;
 
             std::array<int, SIZE> shifts{};
 
@@ -303,39 +346,46 @@ struct board
             for (int step = limit; step >= 1; --step)
             {
                 int sq = m.square + m.dir * step;
+                auto sq_data = at(sq);
 
                 int shift = shifts[step];
-                if (shift > 0)
+                if (shift > 0 && sq_data.side != NONE)
                 {
                     // try shift
                     if (step + shift <= limit)
                     {
                         int shift_sq = m.square + m.dir * (step + shift);
 
+                        auto shift_sq_data = at(shift_sq);
+                        hash ^= zob.pst[shift_sq_data.height][shift_sq][shift_sq_data.side];
+                        hash ^= zob.pst[sq_data.height][shift_sq][sq_data.side];
+
                         heights[shift_sq] = heights[sq];
-                        if (occ[0] & (1ull << sq))
-                        {
-                            occ[0] |= (1ull << shift_sq);
-                        }
-                        else
-                        {
-                            occ[1] |= (1ull << shift_sq);
-                        }
+                        occ[shift_sq_data.side] ^= (1ull << shift_sq);
+                        occ[sq_data.side] |= (1ull << shift_sq);
                     }
 
                     // clear current
+                    hash ^= zob.pst[sq_data.height][sq][sq_data.side];
+
                     heights[sq] = 0;
-                    occ[0] &= ~(1ull << sq);
-                    occ[1] &= ~(1ull << sq);
+                    occ[sq_data.side] ^= (1ull << sq);
                 }
 
+                // this can only happen if underlying square is empty
                 if (step <= power)
                 {
+                    assert(at(sq).side == NONE);
+
+                    hash ^= zob.pst[1][sq][side2move];
+
                     heights[sq] = 1;
                     occ[side2move] |= (1ull << sq);
-                    occ[side2move ^ 1] &= ~(1ull << sq);
                 }
             }
+
+            hash ^= zob.pst[heights[m.square]][m.square][side2move];
+            hash ^= zob.pst[1][m.square][side2move];
 
             heights[m.square] = 1;
 
@@ -346,15 +396,16 @@ struct board
             exit(1);
         }
 
+        past_length += 1;
         past[past_length].hash = hash;
         side2move ^= 1;
         moves += 1;
-        past_length += 1;
     }
 
     void unmake_move(const move& m)
     {
-        assert(past_length > 0);
+        assert(past_length >= 1);
+
         past_length -= 1;
         moves -= 1;
         side2move ^= 1;
@@ -387,7 +438,7 @@ struct board
 
     uint64_t get_hash() const
     {
-        return hash;
+        return past[past_length].hash;
     }
 
     int get_state() const
