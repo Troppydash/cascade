@@ -656,9 +656,7 @@ struct engine
             m_board.unmake_move(m);
             if (m_board.get_hash() != h)
                 std::cout << "before " << h << " after " << m_board.get_hash() << std::endl;
-            // m_board.display();
-            // exit(0);
-
+           
             if (m_timer.is_stopped())
                 return 0;
 

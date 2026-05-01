@@ -457,6 +457,17 @@ struct board
 
     bool is_repetition(int ply) const
     {
+        for (int i = 2; i < ply; i += 2)
+        {
+            if (past_length - i < 0)
+                break;
+
+            if (past[past_length].hash == past[past_length - i].hash)
+                return true;
+        }
+
+        // TODO: also search before ply
+
         return false;
     }
 
