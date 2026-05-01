@@ -252,7 +252,7 @@ struct heuristics
     history_entry<int, 20000> drop_history[13][64];
     history_entry<int, 20000> main_history[64][64];
     history_entry<int, 20000> capture_history[13][64];
-    history_entry<int, 20000> expand_history[13][64];
+    history_entry<int, 20000> expand_history[13][64][4];
 
 
     explicit heuristics()
@@ -375,15 +375,11 @@ struct movepick
                     }
                     else
                     {
-                        m.score = m_heur.expand_history[m_board.heights[m.square]][m.to()].get_value() - m_board.heights[m.square] * 2;
+                        m.score = m_heur.expand_history[m_board.heights[m.square]][m.square][m.get_dir()].get_value() - m_board.heights[m.square] * 2;
                     }
-
-                    std::cout << m.score << "\n";
                 }
 
-
                 sort_moves(moves, 0, moves.size());
-
 
                 m_stage++;
                 break;
@@ -500,6 +496,8 @@ struct evaluator
 
     int evaluate(const board& board)
     {
+        assert(board.get_state() == NONE);
+
         int total = 0;
 
         uint64_t occ = board.occ[0] | board.occ[1];
@@ -684,7 +682,7 @@ struct engine
             move_count += 1;
 
             int new_depth = depth - 1;
-            auto h = m_board.get_hash();
+            // auto h = m_board.get_hash();
             m_board.make_move(m);
 
             if (depth >= 2 && move_count > 1 + 2 * is_root)
@@ -715,8 +713,8 @@ struct engine
             }
 
             m_board.unmake_move(m);
-            if (m_board.get_hash() != h)
-                std::cout << "before " << h << " after " << m_board.get_hash() << std::endl;
+            // if (m_board.get_hash() != h)
+            //     std::cout << "before " << h << " after " << m_board.get_hash() << std::endl;
 
             if (m_timer.is_stopped())
                 return 0;
@@ -794,7 +792,7 @@ struct engine
                     break;
                 }
                 case move::EXPAND: {
-                    m_heuristic.expand_history[m_board.heights[best_move.square]][best_move.to()].add_bonus(bonus);
+                    m_heuristic.expand_history[m_board.heights[best_move.square]][best_move.square][best_move.get_dir()].add_bonus(bonus);
 
                     break;
                 }
@@ -806,7 +804,7 @@ struct engine
                     m_heuristic.capture_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
 
                 for (auto& m : expand_moves)
-                    m_heuristic.expand_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
+                    m_heuristic.expand_history[m_board.heights[m.square]][m.square][m.get_dir()].add_bonus(-malus);
             }
         }
 

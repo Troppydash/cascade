@@ -85,6 +85,24 @@ struct move
         }
     }
 
+    int get_dir() const
+    {
+        switch (dir)
+        {
+        case UP:
+            return 0;
+        case DOWN:
+            return 1;
+        case LEFT:
+            return 2;
+        case RIGHT:
+            return 3;
+        default:
+            std::cerr << "valid_normal failed\n";
+            exit(1);
+        }
+    }
+
     bool is_none() const { return (square == 64); }
 
     int type() const
@@ -614,24 +632,24 @@ struct movegen
 
     std::vector<move> get_expands()
     {
-        uint64_t occ = m_board.occ[m_board.side2move];
         std::vector<move> moves{};
-        // while (occ)
-        // {
-        //     int idx = __builtin_ctzll(occ);
-        //     occ ^= (1ull << idx);
+        uint64_t occ = m_board.occ[m_board.side2move];
+        while (occ)
+        {
+            int idx = __builtin_ctzll(occ);
+            occ ^= (1ull << idx);
 
-        //     if (m_board.heights[idx] == 1)
-        //     {
-        //         continue;
-        //     }
+            if (m_board.heights[idx] == 1)
+            {
+                continue;
+            }
 
-        //     constexpr std::array<int, 4> dirs{ move::UP, move::DOWN, move::LEFT, move::RIGHT };
-        //     for (int dir : dirs)
-        //     {
-        //         moves.push_back(move::make_expand(idx, dir));
-        //     }
-        // }
+            constexpr std::array<int, 4> dirs{ move::UP, move::DOWN, move::LEFT, move::RIGHT };
+            for (int dir : dirs)
+            {
+                moves.push_back(move::make_expand(idx, dir));
+            }
+        }
         return moves;
     }
 
@@ -654,22 +672,22 @@ struct movegen
         // expands
         uint64_t occ = m_board.occ[m_board.side2move];
         std::vector<move> moves{};
-        while (occ)
-        {
-            int idx = __builtin_ctzll(occ);
-            occ ^= (1ull << idx);
+        // while (occ)
+        // {
+        //     int idx = __builtin_ctzll(occ);
+        //     occ ^= (1ull << idx);
 
-            if (m_board.heights[idx] == 1)
-            {
-                continue;
-            }
+        //     if (m_board.heights[idx] == 1)
+        //     {
+        //         continue;
+        //     }
 
-            constexpr std::array<int, 4> dirs{ move::UP, move::DOWN, move::LEFT, move::RIGHT };
-            for (int dir : dirs)
-            {
-                moves.push_back(move::make_expand(idx, dir));
-            }
-        }
+        //     constexpr std::array<int, 4> dirs{ move::UP, move::DOWN, move::LEFT, move::RIGHT };
+        //     for (int dir : dirs)
+        //     {
+        //         moves.push_back(move::make_expand(idx, dir));
+        //     }
+        // }
 
         // captures
         occ = m_board.occ[m_board.side2move];
