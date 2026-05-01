@@ -62,12 +62,12 @@ struct timer {
         if (stopped)
             return;
 
-        stopped = now() >= base + limit;
+        stopped = (now() >= (base + limit));
     }
 
     bool is_stopped() const { return stopped; }
 
-    bool is_optimal_stopped() const { return now() >= base + optimal; }
+    bool is_optimal_stopped() const { return now() >= (base + optimal); }
 
 
     static int64_t now() {
@@ -614,9 +614,10 @@ struct engine {
         sel_depth = std::max(sel_depth, ss->ply);
         if ((nodes & 4095) == 0) {
             m_timer.check();
-            if (m_timer.is_stopped())
-                return 0;
         }
+
+        if (m_timer.is_stopped())
+            return 0;
 
         // terminal check
         int state = m_board.get_state();
@@ -739,9 +740,10 @@ struct engine {
         nodes += 1;
         if ((nodes & 4095) == 0) {
             m_timer.check();
-            if (m_timer.is_stopped())
-                return 0;
         }
+
+        if (m_timer.is_stopped())
+            return 0;
 
         // terminal check
         int state = m_board.get_state();
@@ -985,7 +987,7 @@ struct engine {
     }
 
 
-    result search(int64_t max_time, int64_t opt_time) {
+    result search(int64_t opt_time, int64_t max_time) {
         nodes = 0;
         sel_depth = 0;
 
@@ -1017,6 +1019,7 @@ struct engine {
             // asp window search
             while (true) {
                 int score = negamax<true>(alpha, beta, depth, &m_ss[SS_HEAD], false);
+                m_timer.check();
                 if (m_timer.is_stopped())
                     break;
 

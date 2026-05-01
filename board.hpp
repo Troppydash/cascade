@@ -485,7 +485,7 @@ struct board {
                 if (start.side != side2move)
                     return false;
 
-                if (end.side != side2move && start.height <= end.height)
+                if (end.side != side2move && start.height < end.height)
                     return false;
 
                 return true;
@@ -572,7 +572,7 @@ struct movegen {
             for (int dir: dirs) {
                 if (move::valid_normal(idx, dir)) {
                     if (!(m_board.occ[m_board.side2move ^ 1] & (1ull << (idx + dir))) ||
-                        m_board.heights[idx] > m_board.heights[idx + dir])
+                        m_board.heights[idx] >= m_board.heights[idx + dir])
                         moves.push_back(move::make_normal(idx, m_board.heights[idx], dir));
                 }
             }
@@ -640,7 +640,7 @@ struct movegen {
             for (int dir: dirs) {
                 if (move::valid_normal(idx, dir)) {
                     if ((m_board.occ[m_board.side2move ^ 1] & (1ull << (idx + dir))) &&
-                        m_board.heights[idx] > m_board.heights[idx + dir])
+                        m_board.heights[idx] >= m_board.heights[idx + dir])
                         moves.push_back(move::make_normal(idx, m_board.heights[idx], dir));
                 }
             }
