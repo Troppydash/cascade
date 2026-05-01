@@ -261,14 +261,11 @@ struct evaluator {
         }
 
         // drop tempo
-        // if (board.is_drop())
-        // {
-        //     total += 10;
-        // }
-        // else
-        // {
-        //     total += 30;
-        // }
+        if (board.is_drop()) {
+            total += 10;
+        } else {
+            total += 30;
+        }
 
         return total;
     }
@@ -537,6 +534,7 @@ struct movepick {
 
     static void sort_moves(std::vector<move> &moves, int start, int end,
                            int limit = std::numeric_limits<int16_t>::min()) {
+
         for (int i = start + 1; i < end; ++i) {
             if (moves[i].score >= limit) {
                 move temp = moves[i];
@@ -683,6 +681,7 @@ struct engine {
         while (!(m = gen.next_move()).is_none()) {
             move_count += 1;
 
+            ss->m = m;
             m_board.make_move(m);
             score = -qsearch<is_pv_node>(-beta, -alpha, depth - 1, ss + 1);
             m_board.unmake_move(m);
@@ -804,6 +803,27 @@ struct engine {
             return (beta + adjusted_static_score) / 2;
         }
 
+        // nmp
+        if (cut_node && !(ss - 1)->m.is_none() && adjusted_static_score >= beta && IS_VALID(unadjusted_static_score) &&
+            !IS_LOSS(beta)) {
+            int reduction = 2 + depth / 6;
+
+            int reduced_depth = std::max(0, depth - reduction);
+
+            auto null = move::none();
+            ss->m = null;
+            m_board.make_move(null);
+            int null_score = -negamax<false>(-beta, -beta + 1, reduced_depth, ss + 1, false);
+            m_board.unmake_move(null);
+
+            if (m_timer.is_stopped())
+                return 0;
+
+            if (null_score >= beta)
+                return null_score;
+        }
+
+
         // negamax
         movepick gen{tt_data.m, m_board, m_heuristic, m_evaluator, movepick::stage::PV};
         move m;
@@ -819,7 +839,9 @@ struct engine {
             move_count += 1;
 
             int new_depth = depth - 1;
+            ss->m = m;
             m_board.make_move(m);
+
 
             if (depth >= 2 && move_count > 1 + 2 * is_root) {
                 int reduction = m_heuristic.get_lmr(depth, move_count);
