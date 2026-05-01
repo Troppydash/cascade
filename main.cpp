@@ -35,6 +35,6 @@ void search()
 
 int main()
 {
-    loop();
+    search();
     return 0;
 }

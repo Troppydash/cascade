@@ -582,8 +582,8 @@ struct engine
         tt::entry::data tt_data = entry->get(key, ss->ply, depth, alpha, beta);
 
         // early tt cutoff
-        // if (!is_pv_node && tt_data.can_use && (cut_node == (tt_data.score >= beta)) && tt_data.depth >= depth + (tt_data.score >= beta))
-        //     return tt_data.score;
+        if (!is_pv_node && tt_data.can_use && (cut_node == (tt_data.score >= beta)) && tt_data.depth >= depth + (tt_data.score >= beta))
+            return tt_data.score;
 
         int unadjusted_static_score = VALUE_NONE;
         int adjusted_static_score = VALUE_NONE;
@@ -631,13 +631,12 @@ struct engine
 
             if (depth >= 2 && move_count > 1 + 2 * is_root)
             {
-                // int reduction = m_heuristic.get_lmr(depth, move_count);
-                int reduction = 0;
+                int reduction = m_heuristic.get_lmr(depth, move_count);
 
-                // if (cut_node)
-                //     reduction += 2;
+                if (cut_node)
+                    reduction += 2;
 
-                // reduction -= is_pv_node;
+                reduction -= is_pv_node;
 
                 int reduced_depth = std::clamp(new_depth - reduction, 1, new_depth + 1);
                 score = -negamax<false>(-(alpha + 1), -alpha, reduced_depth, ss + 1, true);
@@ -721,7 +720,7 @@ struct engine
             int alpha = -INF;
             int beta = INF;
 
-            int window = 100;
+            int window = 300;
 
             if (depth > 4)
             {
@@ -736,12 +735,12 @@ struct engine
                 if (m_timer.is_stopped())
                     break;
 
-                if (score < alpha)
+                if (score <= alpha)
                 {
                     beta = alpha + 1;
                     alpha = std::max(-INF, score - window);
                 }
-                else if (score > beta)
+                else if (score >= beta)
                 {
                     alpha = beta - 1;
                     beta = std::min(INF, score + window);

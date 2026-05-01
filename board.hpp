@@ -272,12 +272,12 @@ struct board
             past[past_length].heights[m.to()] = heights[m.to()];
             past[past_length].occ = occ;
 
-            hash ^= zob.pst[heights[m.square]][m.square][side2move];
-            heights[m.square] = 0;
-            occ[side2move] ^= (1ull << m.square);
+            assert(heights[m.square] > 0);
+            assert(occ[side2move] & (1ull << m.square));
 
             if (occ[side2move ^ 1] & (1ull << m.to()))
             {
+                assert(heights[m.to()] > 0);
                 // capture
                 hash ^= zob.pst[heights[m.square]][m.to()][side2move];
                 hash ^= zob.pst[heights[m.to()]][m.to()][side2move ^ 1];
@@ -288,6 +288,7 @@ struct board
             }
             else if (occ[side2move] & (1ull << m.to()))
             {
+                assert(heights[m.to()] > 0);
                 // stack
                 hash ^= zob.pst[heights[m.to()]][m.to()][side2move];
                 heights[m.to()] += heights[m.square];
@@ -302,15 +303,22 @@ struct board
                 occ[side2move] |= (1ull << m.to());
             }
 
+            hash ^= zob.pst[heights[m.square]][m.square][side2move];
+            heights[m.square] = 0;
+            occ[side2move] ^= (1ull << m.square);
+
+
             break;
         }
         case move::PLACE: {
             if (occ[side2move] & (1ull << m.square))
             {
+                assert(heights[m.square] > 0);
                 hash ^= zob.pst[heights[m.square]][m.square][side2move];
             }
             else
             {
+                assert(heights[m.square] == 0);
                 occ[side2move] |= (1ull << m.square);
             }
 
@@ -415,7 +423,7 @@ struct board
         case move::NORMAL: {
             heights[m.square] = past[past_length].heights[m.square];
             heights[m.to()] = past[past_length].heights[m.to()];
-            std::memcpy(occ.data(), past[past_length].occ.data(), occ.size() * sizeof(uint64_t));
+            occ = past[past_length].occ;
             break;
         }
         case move::PLACE: {
@@ -425,8 +433,8 @@ struct board
             break;
         }
         case move::EXPAND: {
-            std::memcpy(heights.data(), past[past_length].heights.data(), heights.size() * sizeof(int8_t));
-            std::memcpy(occ.data(), past[past_length].occ.data(), occ.size() * sizeof(uint64_t));
+            heights = past[past_length].heights;
+            occ = past[past_length].occ;
 
             break;
         }
@@ -607,22 +615,22 @@ struct movegen
     {
         uint64_t occ = m_board.occ[m_board.side2move];
         std::vector<move> moves{};
-        while (occ)
-        {
-            int idx = __builtin_ctzll(occ);
-            occ ^= (1ull << idx);
+        // while (occ)
+        // {
+        //     int idx = __builtin_ctzll(occ);
+        //     occ ^= (1ull << idx);
 
-            if (m_board.heights[idx] == 1)
-            {
-                continue;
-            }
+        //     if (m_board.heights[idx] == 1)
+        //     {
+        //         continue;
+        //     }
 
-            constexpr std::array<int, 4> dirs{ move::UP, move::DOWN, move::LEFT, move::RIGHT };
-            for (int dir : dirs)
-            {
-                moves.push_back(move::make_expand(idx, dir));
-            }
-        }
+        //     constexpr std::array<int, 4> dirs{ move::UP, move::DOWN, move::LEFT, move::RIGHT };
+        //     for (int dir : dirs)
+        //     {
+        //         moves.push_back(move::make_expand(idx, dir));
+        //     }
+        // }
         return moves;
     }
 
