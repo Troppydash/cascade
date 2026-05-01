@@ -276,11 +276,12 @@ struct movepick
     const board& m_board;
     const heuristics& m_heur;
 
-    int move_ptr[2];
-    std::vector<move> moves[2];
+    int move_ptr;
+    std::vector<move> moves;
+    std::vector<move> bad_moves;
 
     // negamax
-    explicit movepick(const move& pv, const board& board, const heuristics& heur) : m_pv(pv), m_board(board), m_heur(heur)
+    explicit movepick(const move& pv, const board& board, const heuristics& heur) : m_pv(pv), m_board(board), m_heur(heur), move_ptr{ 0 }, moves{}, bad_moves{}
     {
         if (m_board.is_drop())
             m_stage = DROP_PV;
@@ -304,8 +305,8 @@ struct movepick
             }
             case DROP_INIT: {
                 movegen gen{ m_board };
-                moves[0] = gen.get_drops();
-                move_ptr[0] = 0;
+                moves = gen.get_drops();
+                move_ptr = 0;
 
                 // order moves
 
@@ -315,9 +316,9 @@ struct movepick
             }
 
             case DROP_MOVES: {
-                move_ptr[0] = pick_move(moves[0], move_ptr[0], moves[0].size(), [](auto&) { return true; });
-                if (move_ptr[0] < moves[0].size())
-                    return moves[0][move_ptr[0]++];
+                move_ptr = pick_move(moves, move_ptr, moves.size(), [](auto&) { return true; });
+                if (move_ptr < moves.size())
+                    return moves[move_ptr++];
 
                 m_stage = DONE;
                 break;
@@ -333,9 +334,8 @@ struct movepick
             }
             case CAPTURE_INIT: {
                 movegen gen{ m_board };
-                moves[0] = gen.get_captures();
-                move_ptr[0] = 0;
-                move_ptr[1] = 0;
+                moves = gen.get_captures();
+                move_ptr = 0;
 
                 // score moves
 
@@ -344,17 +344,17 @@ struct movepick
             }
             case GOOD_CAPTURE: {
                 // TODO: move to bad captures
-                move_ptr[0] = pick_move(moves[0], move_ptr[0], moves[0].size(), [](auto&) { return true; });
-                if (move_ptr[0] < moves[0].size())
-                    return moves[0][move_ptr[0]++];
+                move_ptr = pick_move(moves, move_ptr, moves.size(), [](auto&) { return true; });
+                if (move_ptr < moves.size())
+                    return moves[move_ptr++];
 
                 m_stage++;
                 break;
             }
             case QUIET_INIT: {
                 movegen gen{ m_board };
-                moves[0] = gen.get_quiets();
-                move_ptr[0] = 0;
+                moves = gen.get_quiets();
+                move_ptr = 0;
 
                 // score moves
 
@@ -362,17 +362,18 @@ struct movepick
                 break;
             }
             case QUIET: {
-                move_ptr[0] = pick_move(moves[0], move_ptr[0], moves[0].size(), [](auto&) { return true; });
-                if (move_ptr[0] < moves[0].size())
-                    return moves[0][move_ptr[0]++];
+                move_ptr = pick_move(moves, move_ptr, moves.size(), [](auto&) { return true; });
+                if (move_ptr < moves.size())
+                    return moves[move_ptr++];
 
+                move_ptr = 0;
                 m_stage++;
                 break;
             }
             case BAD_EXPAND: {
-                move_ptr[1] = pick_move(moves[1], move_ptr[1], moves[1].size(), [](auto&) { return true; });
-                if (move_ptr[1] < moves[1].size())
-                    return moves[1][move_ptr[1]++];
+                move_ptr = pick_move(bad_moves, move_ptr, bad_moves.size(), [](auto&) { return true; });
+                if (move_ptr < bad_moves.size())
+                    return bad_moves[move_ptr++];
 
                 m_stage = DONE;
                 break;
@@ -531,6 +532,8 @@ struct engine
     template <bool is_pv_node>
     int negamax(int alpha, int beta, int depth, search_stack* ss, bool cut_node)
     {
+        assert(alpha < beta);
+
         ss->pv_length = 0;
         nodes += 1;
         if ((nodes & 4095) == 0)
@@ -560,13 +563,13 @@ struct engine
         bool is_root = ss->ply == 0 && is_pv_node;
 
         // mate distance pruning
-        if (!is_root)
-        {
-            alpha = std::max(alpha, MATED_IN(ss->ply));
-            beta = std::min(beta, MATE_IN(ss->ply + 1));
-            if (alpha >= beta)
-                return alpha;
-        }
+        // if (!is_root)
+        // {
+        //     alpha = std::max(alpha, MATED_IN(ss->ply));
+        //     beta = std::min(beta, MATE_IN(ss->ply + 1));
+        //     if (alpha >= beta)
+        //         return alpha;
+        // }
 
         // repetition
         if (!is_root && m_board.is_repetition(ss->ply))
@@ -628,7 +631,8 @@ struct engine
 
             if (depth >= 2 && move_count > 1 + 2 * is_root)
             {
-                int reduction = m_heuristic.get_lmr(depth, move_count);
+                // int reduction = m_heuristic.get_lmr(depth, move_count);
+                int reduction = 0;
 
                 // if (cut_node)
                 //     reduction += 2;
@@ -656,7 +660,7 @@ struct engine
             m_board.unmake_move(m);
             if (m_board.get_hash() != h)
                 std::cout << "before " << h << " after " << m_board.get_hash() << std::endl;
-           
+
             if (m_timer.is_stopped())
                 return 0;
 
