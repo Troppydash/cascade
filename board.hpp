@@ -1,10 +1,9 @@
 #pragma once
 
-#include <cinttypes>
 #include <vector>
 #include <random>
 #include <array>
-#include <cstring>
+#include <iostream>
 #include <format>
 #include <cassert>
 #include "color.hpp"

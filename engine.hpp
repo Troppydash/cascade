@@ -2,6 +2,8 @@
 
 #include <chrono>
 #include <format>
+#include <iostream>
+#include <iterator>
 #include <vector>
 #include "board.hpp"
 
@@ -303,8 +305,8 @@ struct movepick {
     const evaluator &m_eval;
 
     int move_ptr;
+    int bad_moves;
     std::vector<move> moves;
-    std::vector<move> bad_moves;
 
     // negamax, qsearch
     explicit movepick(const move &pv, const board &board, const heuristics &heur, const evaluator &eval,
@@ -412,12 +414,19 @@ struct movepick {
 
                     sort_moves(moves, 0, moves.size());
 
+                    bad_moves = 0;
                     m_stage++;
                     break;
                 }
                 case GOOD_CAPTURE: {
-                    // TODO: move to bad captures
-                    move_ptr = pick_move(moves, move_ptr, moves.size(), [](auto &) { return true; });
+                    move_ptr = pick_move(moves, move_ptr, moves.size(), [this](move &m) {
+                        if (m.type() == move::EXPAND && this->eval_expand_pushoffs(m) < 50) {
+                            std::swap(moves[bad_moves++], m);
+                            return false;
+                        } else {
+                            return true;
+                        }
+                    });
                     if (move_ptr < moves.size())
                         return moves[move_ptr++];
 
@@ -426,17 +435,19 @@ struct movepick {
                 }
                 case QUIET_INIT: {
                     movegen gen{m_board};
-                    moves = gen.get_quiets();
-                    move_ptr = 0;
+                    std::vector<move> quiets = gen.get_quiets();
+                    move_ptr = moves.size();
+                    moves.insert(moves.end(), std::make_move_iterator(quiets.begin()),
+                                 std::make_move_iterator(quiets.end()));
 
                     // score moves
-                    for (int i = 0; i < moves.size(); ++i) {
+                    for (int i = move_ptr; i < moves.size(); ++i) {
                         auto &m = moves[i];
 
                         m.score = m_heur.main_history[m.square][m.to()].get_value();
                     }
 
-                    sort_moves(moves, 0, moves.size());
+                    sort_moves(moves, move_ptr, moves.size());
 
                     m_stage++;
                     break;
@@ -451,9 +462,12 @@ struct movepick {
                     break;
                 }
                 case BAD_EXPAND: {
-                    move_ptr = pick_move(bad_moves, move_ptr, bad_moves.size(), [](auto &) { return true; });
-                    if (move_ptr < bad_moves.size())
-                        return bad_moves[move_ptr++];
+                    move_ptr = pick_move(moves, move_ptr, bad_moves, [](auto &m) {
+                        assert(m.type() == move::EXPAND);
+                        return true;
+                    });
+                    if (move_ptr < bad_moves)
+                        return moves[move_ptr++];
 
                     m_stage = DONE;
                     break;
@@ -491,8 +505,9 @@ struct movepick {
                     break;
                 }
                 case QCAPTURE: {
-                    move_ptr = pick_move(moves, move_ptr, moves.size(),
-                                         [this](auto &m) { return this->eval_expand_pushoffs(m) > 0; });
+                    move_ptr = pick_move(moves, move_ptr, moves.size(), [this](auto &m) {
+                        return m.type() != move::EXPAND || this->eval_expand_pushoffs(m) > 100;
+                    });
                     if (move_ptr < moves.size())
                         return moves[move_ptr++];
 
@@ -508,7 +523,7 @@ struct movepick {
     }
 
     template<typename Pred>
-    int pick_move(const std::vector<move> &moves, const int start, const int end, Pred filter) {
+    int pick_move(std::vector<move> &moves, const int start, const int end, Pred filter) {
         for (int i = start; i < end; ++i) {
             if (!filter(moves[i]))
                 continue;
