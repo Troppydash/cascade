@@ -12,6 +12,7 @@ constexpr int INF = 32000;
 constexpr int CHECKMATE = INF - MAX_DEPTH;
 constexpr int VALUE_DRAW = 0;
 constexpr int VALUE_NONE = INF + 1;
+constexpr int QDEPTH = 0;
 constexpr int UNSEARCHED_DEPTH = -19;
 constexpr int UNINIT_DEPTH = -20;
 constexpr int NO_FLAG = 0;
@@ -282,13 +283,15 @@ struct movepick
         CAPTURE_INIT,
         // MOVE and good EXPAND
         GOOD_CAPTURE,
-
         // non-capture MOVE
         QUIET_INIT,
         QUIET,
-
         // bad EXPAND
         BAD_EXPAND,
+
+        QPV,
+        QCAPTURE_INIT,
+        QCAPTURE,
 
         DONE
     };
@@ -302,13 +305,13 @@ struct movepick
     std::vector<move> moves;
     std::vector<move> bad_moves;
 
-    // negamax
-    explicit movepick(const move& pv, const board& board, const heuristics& heur) : m_pv(pv), m_board(board), m_heur(heur), move_ptr{ 0 }, moves{}, bad_moves{}
+    // negamax, qsearch
+    explicit movepick(const move& pv, const board& board, const heuristics& heur, stage st = PV) : m_pv(pv), m_board(board), m_heur(heur), move_ptr{ 0 }, moves{}, bad_moves{}
     {
         if (m_board.is_drop())
             m_stage = DROP_PV;
         else
-            m_stage = PV;
+            m_stage = st;
     }
 
     move next_move()
@@ -426,6 +429,49 @@ struct movepick
                     return bad_moves[move_ptr++];
 
                 m_stage = DONE;
+                break;
+            }
+
+            case QPV: {
+                m_stage++;
+                if (!m_pv.is_none() && m_board.is_legal(m_pv))
+                {
+                    return m_pv;
+                }
+                break;
+            }
+            case QCAPTURE_INIT: {
+                movegen gen{ m_board };
+                moves = gen.get_captures();
+                move_ptr = 0;
+
+                // score moves
+                for (int i = 0; i < moves.size(); ++i)
+                {
+                    auto& m = moves[i];
+
+                    if (m.type() == move::NORMAL)
+                    {
+                        m.score = m_heur.capture_history[m_board.heights[m.square]][m.to()].get_value() - m_board.heights[m.square] * 2;
+                    }
+                    else
+                    {
+                        m.score = m_heur.expand_history[m_board.heights[m.square]][m.square][m.get_dir()].get_value() - m_board.heights[m.square] * 2;
+                    }
+                }
+
+                sort_moves(moves, 0, moves.size());
+
+                m_stage++;
+                break;
+            }
+            case QCAPTURE: {
+                // TODO: move to bad captures
+                move_ptr = pick_move(moves, move_ptr, moves.size(), [](auto&) { return true; });
+                if (move_ptr < moves.size())
+                    return moves[move_ptr++];
+
+                m_stage++;
                 break;
             }
 
@@ -569,16 +615,158 @@ struct engine
     search_stack m_ss[MAX_DEPTH + SS_HEAD];
     timer m_timer;
     int64_t nodes;
+    int sel_depth;
 
     tt m_tt;
     heuristics m_heuristic;
     evaluator m_evaluator;
 
-    explicit engine(const board& board) : m_board(board), m_tt(64), m_heuristic(), m_evaluator() {}
+    explicit engine(const board& board) : m_board(board), m_tt(1024), m_heuristic(), m_evaluator() {}
 
     int evaluate()
     {
         return m_evaluator.evaluate(m_board);
+    }
+
+    template <bool is_pv_node>
+    int qsearch(int alpha, int beta, int depth, search_stack* ss)
+    {
+        assert(alpha < beta);
+
+        ss->pv_length = 0;
+        nodes += 1;
+        sel_depth = std::max(sel_depth, ss->ply);
+        if ((nodes & 4095) == 0)
+        {
+            m_timer.check();
+            if (m_timer.is_stopped())
+                return 0;
+        }
+
+        // terminal check
+        int state = m_board.get_state();
+        if (state != NONE)
+        {
+            if (state == DRAW)
+                return VALUE_DRAW;
+
+            return -INF + ss->ply;
+        }
+
+        if (ss->ply >= MAX_DEPTH - 5)
+        {
+            return evaluate();
+        }
+
+        // draw check
+        if (m_board.is_repetition(ss->ply))
+            return VALUE_DRAW;
+
+        alpha = std::max(alpha, MATED_IN(ss->ply));
+        beta = std::min(beta, MATE_IN(ss->ply + 1));
+        if (alpha >= beta)
+            return alpha;
+
+        // [tt lookup]
+        uint64_t key = m_board.get_hash();
+        tt::entry* entry = m_tt.get_entry(key);
+        tt::entry::data tt_data = entry->get(key, ss->ply, QDEPTH, alpha, beta);
+
+        // early tt cutoff
+        if (!is_pv_node && tt_data.can_use)
+            return tt_data.score;
+
+        int best_score = -INF;
+        int unadjusted_static_score = VALUE_NONE;
+        int adjusted_static_score = VALUE_NONE;
+        if (tt_data.hit)
+        {
+            unadjusted_static_score = tt_data.static_score;
+            if (!IS_VALID(unadjusted_static_score))
+                unadjusted_static_score = evaluate();
+
+            adjusted_static_score = best_score = unadjusted_static_score;
+
+            bool bound_hit =
+                tt_data.flag == EXACT_FLAG ||
+                (tt_data.flag == BETA_FLAG && tt_data.score > adjusted_static_score)
+                || (tt_data.flag == ALPHA_FLAG && tt_data.score < adjusted_static_score);
+            if (IS_VALID(tt_data.score) && !IS_DECISIVE(tt_data.score) && bound_hit)
+            {
+                adjusted_static_score = best_score = tt_data.score;
+            }
+        }
+        else
+        {
+            unadjusted_static_score = evaluate();
+            adjusted_static_score = best_score = unadjusted_static_score;
+
+            entry->set(key, NO_FLAG, VALUE_NONE, ss->ply, UNSEARCHED_DEPTH, move::none(), unadjusted_static_score);
+        }
+
+        // standing pat
+        if (best_score >= beta)
+        {
+            if (!IS_DECISIVE(best_score))
+            {
+                best_score = (beta + best_score) / 2;
+            }
+
+            return best_score;
+        }
+
+        if (best_score > alpha)
+            alpha = best_score;
+
+        int score;
+        move best_move = move::none();
+        move m = move::none();
+        movepick gen{ tt_data.m, m_board, m_heuristic , movepick::stage::QPV };
+        int move_count = 0;
+        while (!(m = gen.next_move()).is_none())
+        {
+            move_count += 1;
+
+            m_board.make_move(m);
+            score = -qsearch<is_pv_node>(-beta, -alpha, depth - 1, ss + 1);
+            m_board.unmake_move(m);
+
+            if (m_timer.is_stopped())
+                return 0;
+
+            if (score > best_score)
+            {
+                best_score = score;
+
+                if (score > alpha)
+                {
+                    best_move = m;
+
+                    if (score >= beta)
+                        break;
+
+                    alpha = score;
+                }
+            }
+
+            if (!IS_LOSS(best_score))
+            {
+                if (move_count >= 5)
+                    break;
+            }
+        }
+
+        // average out the best score
+        if (!IS_DECISIVE(best_score) && best_score > beta)
+        {
+            best_score = (beta + best_score) / 2;
+        }
+
+        int flag = best_score >= beta ? BETA_FLAG : ALPHA_FLAG;
+
+        entry->set(key, flag, best_score, ss->ply, QDEPTH, best_move, unadjusted_static_score);
+
+        return best_score;
     }
 
     template <bool is_pv_node>
@@ -610,7 +798,7 @@ struct engine
 
 
         if (depth <= 0)
-            return evaluate();
+            return qsearch<is_pv_node>(alpha, beta, depth, ss);
 
 
         bool is_root = ss->ply == 0 && is_pv_node;
@@ -665,7 +853,13 @@ struct engine
             entry->set(key, NO_FLAG, VALUE_NONE, ss->ply, UNSEARCHED_DEPTH, move::none(), unadjusted_static_score);
         }
 
-        // pruning
+        // static null move pruning
+        int margin = 100 * depth;
+        if (!is_pv_node && IS_VALID(adjusted_static_score) && adjusted_static_score - margin >= beta && !IS_LOSS(beta) && depth <= 5
+            && !IS_WIN(adjusted_static_score))
+        {
+            return (beta + adjusted_static_score) / 2;
+        }
 
         // negamax
         movepick gen{ tt_data.m, m_board, m_heuristic };
@@ -683,7 +877,6 @@ struct engine
             move_count += 1;
 
             int new_depth = depth - 1;
-            // auto h = m_board.get_hash();
             m_board.make_move(m);
 
             if (depth >= 2 && move_count > 1 + 2 * is_root)
@@ -714,8 +907,6 @@ struct engine
             }
 
             m_board.unmake_move(m);
-            // if (m_board.get_hash() != h)
-            //     std::cout << "before " << h << " after " << m_board.get_hash() << std::endl;
 
             if (m_timer.is_stopped())
                 return 0;
@@ -819,6 +1010,9 @@ struct engine
 
     result search(int64_t max_time, int64_t opt_time)
     {
+        nodes = 0;
+        sel_depth = 0;
+
         m_timer.start(opt_time, max_time);
 
         // setup search stack
@@ -883,14 +1077,14 @@ struct engine
                 break;
 
             // print stats
-            std::cout << "info" << " depth " << depth << " score " << score_to_cp(res.score) << " nodes " << nodes;
+            std::cout << "info" << " depth " << res.depth << " seldepth " << sel_depth << " score " << score_to_cp(res.score) << " nodes " << nodes << " time " << timer::now() - m_timer.base << " pv";
             for (int i = 0; i < m_ss[SS_HEAD].pv_length; ++i)
                 std::cout << " " << m_ss[SS_HEAD].pv_line[i].str();
             std::cout << "\n";
         }
 
         // print stats
-        std::cout << "info" << " depth " << res.depth << " score " << score_to_cp(res.score) << " nodes " << nodes;
+        std::cout << "info" << " depth " << res.depth << " seldepth " << sel_depth << " score " << score_to_cp(res.score) << " nodes " << nodes << " time " << timer::now() - m_timer.base << " pv";
         for (int i = 0; i < m_ss[SS_HEAD].pv_length; ++i)
             std::cout << " " << m_ss[SS_HEAD].pv_line[i].str();
         std::cout << "\n";

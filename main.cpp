@@ -33,6 +33,11 @@ void search()
     eng.search(time, time);
 }
 
+void selfplay()
+{
+    
+}
+
 int main()
 {
     search();
