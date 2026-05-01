@@ -1,9 +1,9 @@
 #pragma once
 
-#include "board.hpp"
+#include <chrono>
 #include <format>
 #include <vector>
-#include <chrono>
+#include "board.hpp"
 
 constexpr int MAX_DEPTH = 128;
 constexpr int SS_HEAD = 10;
@@ -21,39 +21,20 @@ constexpr int BETA_FLAG = 2;
 constexpr int EXACT_FLAG = 3;
 
 
-constexpr bool IS_VALID(int value)
-{
-    return value != VALUE_NONE;
-}
+constexpr bool IS_VALID(int value) { return value != VALUE_NONE; }
 
-constexpr int MATED_IN(int ply)
-{
-    return -INF + ply;
-}
+constexpr int MATED_IN(int ply) { return -INF + ply; }
 
-constexpr int MATE_IN(int ply)
-{
-    return INF - ply;
-}
+constexpr int MATE_IN(int ply) { return INF - ply; }
 
-constexpr bool IS_WIN(int value)
-{
-    return value > CHECKMATE;
-}
+constexpr bool IS_WIN(int value) { return value > CHECKMATE; }
 
-constexpr bool IS_LOSS(int value)
-{
-    return value < -CHECKMATE;
-}
+constexpr bool IS_LOSS(int value) { return value < -CHECKMATE; }
 
-constexpr bool IS_DECISIVE(int value)
-{
-    return IS_WIN(value) || IS_LOSS(value);
-}
+constexpr bool IS_DECISIVE(int value) { return IS_WIN(value) || IS_LOSS(value); }
 
 
-std::string score_to_cp(int score)
-{
+std::string score_to_cp(int score) {
     if (score > CHECKMATE)
         return std::format("mate {}", INF - score);
     if (score < -CHECKMATE)
@@ -62,23 +43,20 @@ std::string score_to_cp(int score)
     return std::format("cp {}", score);
 }
 
-struct timer
-{
+struct timer {
     int64_t base;
     int64_t optimal;
     int64_t limit;
     bool stopped;
 
-    void start(int64_t optimal, int64_t limit)
-    {
+    void start(int64_t optimal, int64_t limit) {
         base = now();
         this->optimal = optimal;
         this->limit = limit;
         stopped = false;
     }
 
-    void check()
-    {
+    void check() {
         if (stopped)
             return;
 
@@ -90,20 +68,16 @@ struct timer
     bool is_optimal_stopped() const { return now() >= base + optimal; }
 
 
-    static int64_t now()
-    {
+    static int64_t now() {
         return std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch())
-            .count();
+                       std::chrono::steady_clock::now().time_since_epoch())
+                .count();
     }
 };
 
-struct tt
-{
-    struct entry
-    {
-        struct data
-        {
+struct tt {
+    struct entry {
+        struct data {
             bool hit;
             bool can_use;
             int static_score;
@@ -120,8 +94,7 @@ struct tt
         move m;
         int flag;
 
-        void reset()
-        {
+        void reset() {
             static_score = VALUE_NONE;
             score = VALUE_NONE;
             depth = UNINIT_DEPTH;
@@ -129,15 +102,12 @@ struct tt
             flag = NO_FLAG;
         }
 
-        data get(uint64_t hash, int ply, int depth, int alpha, int beta)
-        {
-            if (this->hash == hash)
-            {
+        data get(uint64_t hash, int ply, int depth, int alpha, int beta) {
+            if (this->hash == hash) {
                 int adjusted_score = VALUE_NONE;
                 bool can_use = false;
 
-                if (IS_VALID(this->score))
-                {
+                if (IS_VALID(this->score)) {
                     adjusted_score = this->score;
 
                     if (adjusted_score > CHECKMATE)
@@ -146,8 +116,7 @@ struct tt
                         adjusted_score += ply;
                 }
 
-                if (this->depth >= depth && IS_VALID(this->score))
-                {
+                if (this->depth >= depth && IS_VALID(this->score)) {
                     if (this->flag == EXACT_FLAG)
                         can_use = true;
                     else if (this->flag == ALPHA_FLAG && adjusted_score <= alpha)
@@ -157,42 +126,36 @@ struct tt
                 }
 
                 return {
-                    .hit = true,
-                    .can_use = can_use,
-                    .static_score = this->static_score,
-                    .score = adjusted_score,
-                    .depth = this->depth,
-                    .m = this->m,
-                    .flag = this->flag,
+                        .hit = true,
+                        .can_use = can_use,
+                        .static_score = this->static_score,
+                        .score = adjusted_score,
+                        .depth = this->depth,
+                        .m = this->m,
+                        .flag = this->flag,
                 };
             }
 
-            return {
-                .hit = false,
-                .can_use = false,
-                .static_score = VALUE_NONE,
-                .score = VALUE_NONE,
-                .depth = UNINIT_DEPTH,
-                .m = move::none(),
-                .flag = NO_FLAG
-            };
+            return {.hit = false,
+                    .can_use = false,
+                    .static_score = VALUE_NONE,
+                    .score = VALUE_NONE,
+                    .depth = UNINIT_DEPTH,
+                    .m = move::none(),
+                    .flag = NO_FLAG};
         }
 
-        void set(uint64_t hash, int flag, int score, int ply, int depth, move m, int static_score)
-        {
-            if (!m.is_none() || this->hash != hash)
-            {
+        void set(uint64_t hash, int flag, int score, int ply, int depth, move m, int static_score) {
+            if (!m.is_none() || this->hash != hash) {
                 this->m = m;
             }
 
-            if (flag == EXACT_FLAG || this->hash != hash || (depth + 5) > this->depth)
-            {
+            if (flag == EXACT_FLAG || this->hash != hash || (depth + 5) > this->depth) {
                 this->hash = hash;
                 this->depth = depth;
                 this->static_score = static_score;
 
-                if (IS_VALID(score))
-                {
+                if (IS_VALID(score)) {
                     if (score > CHECKMATE)
                         score += ply;
                     if (score < -CHECKMATE)
@@ -205,49 +168,41 @@ struct tt
     };
 
     int size;
-    entry* entries;
+    entry *entries;
 
-    explicit tt(int mb)
-    {
+    explicit tt(int mb) {
         size = mb * 1024 * 1024 / sizeof(entry);
         entries = new entry[size];
 
         reset();
     }
 
-    void reset()
-    {
+    void reset() {
         for (int i = 0; i < size; ++i)
             entries[i].reset();
     }
 
     ~tt() { delete[] entries; }
 
-    entry* get_entry(uint64_t hash)
-    {
+    entry *get_entry(uint64_t hash) {
         __int128 index = __int128(hash) * __int128(size) >> 64;
         return &entries[index];
     }
 };
 
-template <typename I, I LIMIT> struct history_entry
-{
+template<typename I, I LIMIT>
+struct history_entry {
     I value = 0;
 
-    I get_value() const
-    {
-        return value;
-    }
+    I get_value() const { return value; }
 
-    void add_bonus(int bonus)
-    {
+    void add_bonus(int bonus) {
         I clamped_bonus = std::clamp(bonus, -LIMIT, LIMIT);
         value += clamped_bonus - static_cast<int32_t>(value) * std::abs(clamped_bonus) / LIMIT;
     }
 };
 
-struct heuristics
-{
+struct heuristics {
     int lmr[64][64];
 
     history_entry<int, 20000> drop_history[13][64];
@@ -256,24 +211,69 @@ struct heuristics
     history_entry<int, 20000> expand_history[13][64][4];
 
 
-    explicit heuristics()
-    {
+    explicit heuristics() {
         // set lmr
         for (int depth = 1; depth < 64; ++depth)
             for (int move = 1; move < 64; ++move)
                 lmr[depth][move] = std::floor(0.99 + std::log(depth) * std::log(move) / 3.14);
     }
 
-    [[nodiscard]] int get_lmr(int depth, int move) const
-    {
-        return lmr[std::min(63, depth)][std::min(63, move)];
+    [[nodiscard]] int get_lmr(int depth, int move) const { return lmr[std::min(63, depth)][std::min(63, move)]; }
+};
+
+
+struct evaluator {
+    // note that 100 is 1 piece
+    int pst[64][13];
+
+    explicit evaluator() {
+        // create pst
+        for (int i = 0; i < 64; ++i) {
+            int row = i / 8;
+            int col = i % 8;
+            int sq = 3 - std::abs(row - 3) + 3 - std::abs(col - 3);
+            int sq_value = sq * 10;
+
+            for (int j = 0; j < 13; ++j) {
+                int height_value = j * 20;
+                pst[i][j] = 50 + sq_value + height_value;
+            }
+        }
+    }
+
+    int evaluate(const board &board) {
+        assert(board.get_state() == NONE);
+
+        int total = 0;
+
+        uint64_t occ = board.occ[0] | board.occ[1];
+        while (occ) {
+            int i = __builtin_ctzll(occ);
+            occ ^= (1ull << i);
+
+            if (board.occ[board.side2move] & (1ull << i)) {
+                total += pst[i][board.heights[i]];
+            } else {
+                total -= pst[i][board.heights[i]];
+            }
+        }
+
+        // drop tempo
+        // if (board.is_drop())
+        // {
+        //     total += 10;
+        // }
+        // else
+        // {
+        //     total += 30;
+        // }
+
+        return total;
     }
 };
 
-struct movepick
-{
-    enum stage
-    {
+struct movepick {
+    enum stage {
         DROP_PV = 0,
         DROP_INIT,
         DROP_MOVES,
@@ -298,195 +298,218 @@ struct movepick
 
     int m_stage;
     move m_pv;
-    const board& m_board;
-    const heuristics& m_heur;
+    const board &m_board;
+    const heuristics &m_heur;
+    const evaluator &m_eval;
 
     int move_ptr;
     std::vector<move> moves;
     std::vector<move> bad_moves;
 
     // negamax, qsearch
-    explicit movepick(const move& pv, const board& board, const heuristics& heur, stage st = PV) : m_pv(pv), m_board(board), m_heur(heur), move_ptr{ 0 }, moves{}, bad_moves{}
-    {
+    explicit movepick(const move &pv, const board &board, const heuristics &heur, const evaluator &eval,
+                      stage st = PV) :
+        m_pv(pv), m_board(board), m_heur(heur), m_eval(eval), move_ptr{0}, moves{}, bad_moves{} {
         if (m_board.is_drop())
             m_stage = DROP_PV;
         else
             m_stage = st;
     }
 
-    move next_move()
-    {
-        while (true)
-        {
-            switch ((stage)m_stage)
-            {
-            case DROP_PV: {
-                m_stage++;
-                if (!m_pv.is_none() && m_board.is_legal(m_pv))
-                {
-                    return m_pv;
-                }
-                break;
-            }
-            case DROP_INIT: {
-                movegen gen{ m_board };
-                moves = gen.get_drops();
-                move_ptr = 0;
 
-                for (int i = 0; i < moves.size(); ++i)
-                {
-                    auto& m = moves[i];
-                    m.score = m_heur.drop_history[m_board.heights[m.square]][m.square].get_value();
-                }
+    int eval_expand_pushoffs(const move &m) const {
+        assert(m.type() == move::EXPAND);
+        int score = 0;
 
-                sort_moves(moves, 0, moves.size());
-
-                m_stage++;
-                break;
-            }
-
-            case DROP_MOVES: {
-                move_ptr = pick_move(moves, move_ptr, moves.size(), [](auto&) { return true; });
-                if (move_ptr < moves.size())
-                    return moves[move_ptr++];
-
-                m_stage = DONE;
-                break;
-            }
-
-            case PV: {
-                m_stage++;
-                if (!m_pv.is_none() && m_board.is_legal(m_pv))
-                {
-                    return m_pv;
-                }
-                break;
-            }
-            case CAPTURE_INIT: {
-                movegen gen{ m_board };
-                moves = gen.get_captures();
-                move_ptr = 0;
-
-                // score moves
-                for (int i = 0; i < moves.size(); ++i)
-                {
-                    auto& m = moves[i];
-
-                    if (m.type() == move::NORMAL)
-                    {
-                        m.score = m_heur.capture_history[m_board.heights[m.square]][m.to()].get_value() - m_board.heights[m.square] * 2;
-                    }
-                    else
-                    {
-                        m.score = m_heur.expand_history[m_board.heights[m.square]][m.square][m.get_dir()].get_value() - m_board.heights[m.square] * 2;
+        int limit = m.edge_distance();
+        int power = (int) m_board.heights[m.square] - 1;
+        int before = power;
+        for (int step = 1; step <= limit; ++step) {
+            int sq = m.square + m.dir * step;
+            assert(sq < 64 && sq >= 0);
+            if ((m_board.occ[0] | m_board.occ[1]) & (1ull << sq)) {
+                // shift off
+                if (step + before > limit) {
+                    auto p = m_board.at(sq);
+                    if (p.side == m_board.side2move) {
+                        score -= m_eval.pst[sq][p.height];
+                    } else {
+                        score += m_eval.pst[sq][p.height];
                     }
                 }
-
-                sort_moves(moves, 0, moves.size());
-
-                m_stage++;
-                break;
-            }
-            case GOOD_CAPTURE: {
-                // TODO: move to bad captures
-                move_ptr = pick_move(moves, move_ptr, moves.size(), [](auto&) { return true; });
-                if (move_ptr < moves.size())
-                    return moves[move_ptr++];
-
-                m_stage++;
-                break;
-            }
-            case QUIET_INIT: {
-                movegen gen{ m_board };
-                moves = gen.get_quiets();
-                move_ptr = 0;
-
-                // score moves
-                for (int i = 0; i < moves.size(); ++i)
-                {
-                    auto& m = moves[i];
-
-                    m.score = m_heur.main_history[m.square][m.to()].get_value();
+            } else {
+                before -= 1;
+                if (before == 0) {
+                    limit = step;
+                    break;
                 }
-
-                sort_moves(moves, 0, moves.size());
-
-                m_stage++;
-                break;
             }
-            case QUIET: {
-                move_ptr = pick_move(moves, move_ptr, moves.size(), [](auto&) { return true; });
-                if (move_ptr < moves.size())
-                    return moves[move_ptr++];
+        }
 
-                move_ptr = 0;
-                m_stage++;
-                break;
-            }
-            case BAD_EXPAND: {
-                move_ptr = pick_move(bad_moves, move_ptr, bad_moves.size(), [](auto&) { return true; });
-                if (move_ptr < bad_moves.size())
-                    return bad_moves[move_ptr++];
+        return score;
+    }
 
-                m_stage = DONE;
-                break;
-            }
-
-            case QPV: {
-                m_stage++;
-                if (!m_pv.is_none() && m_board.is_legal(m_pv))
-                {
-                    return m_pv;
-                }
-                break;
-            }
-            case QCAPTURE_INIT: {
-                movegen gen{ m_board };
-                moves = gen.get_captures();
-                move_ptr = 0;
-
-                // score moves
-                for (int i = 0; i < moves.size(); ++i)
-                {
-                    auto& m = moves[i];
-
-                    if (m.type() == move::NORMAL)
-                    {
-                        m.score = m_heur.capture_history[m_board.heights[m.square]][m.to()].get_value() - m_board.heights[m.square] * 2;
+    move next_move() {
+        while (true) {
+            switch ((stage) m_stage) {
+                case DROP_PV: {
+                    m_stage++;
+                    if (!m_pv.is_none() && m_board.is_legal(m_pv)) {
+                        return m_pv;
                     }
-                    else
-                    {
-                        m.score = m_heur.expand_history[m_board.heights[m.square]][m.square][m.get_dir()].get_value() - m_board.heights[m.square] * 2;
+                    break;
+                }
+                case DROP_INIT: {
+                    movegen gen{m_board};
+                    moves = gen.get_drops();
+                    move_ptr = 0;
+
+                    for (int i = 0; i < moves.size(); ++i) {
+                        auto &m = moves[i];
+                        m.score = m_heur.drop_history[m_board.heights[m.square]][m.square].get_value();
                     }
+
+                    sort_moves(moves, 0, moves.size());
+
+                    m_stage++;
+                    break;
                 }
 
-                sort_moves(moves, 0, moves.size());
+                case DROP_MOVES: {
+                    move_ptr = pick_move(moves, move_ptr, moves.size(), [](auto &) { return true; });
+                    if (move_ptr < moves.size())
+                        return moves[move_ptr++];
 
-                m_stage++;
-                break;
-            }
-            case QCAPTURE: {
-                // TODO: move to bad captures
-                move_ptr = pick_move(moves, move_ptr, moves.size(), [](auto&) { return true; });
-                if (move_ptr < moves.size())
-                    return moves[move_ptr++];
+                    m_stage = DONE;
+                    break;
+                }
 
-                m_stage++;
-                break;
-            }
+                case PV: {
+                    m_stage++;
+                    if (!m_pv.is_none() && m_board.is_legal(m_pv)) {
+                        return m_pv;
+                    }
+                    break;
+                }
+                case CAPTURE_INIT: {
+                    movegen gen{m_board};
+                    moves = gen.get_captures();
+                    move_ptr = 0;
 
-            case DONE: {
-                return move::none();
-            }
+                    // score moves
+                    for (int i = 0; i < moves.size(); ++i) {
+                        auto &m = moves[i];
+
+                        if (m.type() == move::NORMAL) {
+                            m.score = m_heur.capture_history[m_board.heights[m.square]][m.to()].get_value() -
+                                      m_board.heights[m.square] * 2;
+                        } else {
+                            m.score = m_heur.expand_history[m_board.heights[m.square]][m.square][m.get_dir()]
+                                              .get_value() -
+                                      m_board.heights[m.square] * 2;
+                        }
+                    }
+
+                    sort_moves(moves, 0, moves.size());
+
+                    m_stage++;
+                    break;
+                }
+                case GOOD_CAPTURE: {
+                    // TODO: move to bad captures
+                    move_ptr = pick_move(moves, move_ptr, moves.size(), [](auto &) { return true; });
+                    if (move_ptr < moves.size())
+                        return moves[move_ptr++];
+
+                    m_stage++;
+                    break;
+                }
+                case QUIET_INIT: {
+                    movegen gen{m_board};
+                    moves = gen.get_quiets();
+                    move_ptr = 0;
+
+                    // score moves
+                    for (int i = 0; i < moves.size(); ++i) {
+                        auto &m = moves[i];
+
+                        m.score = m_heur.main_history[m.square][m.to()].get_value();
+                    }
+
+                    sort_moves(moves, 0, moves.size());
+
+                    m_stage++;
+                    break;
+                }
+                case QUIET: {
+                    move_ptr = pick_move(moves, move_ptr, moves.size(), [](auto &) { return true; });
+                    if (move_ptr < moves.size())
+                        return moves[move_ptr++];
+
+                    move_ptr = 0;
+                    m_stage++;
+                    break;
+                }
+                case BAD_EXPAND: {
+                    move_ptr = pick_move(bad_moves, move_ptr, bad_moves.size(), [](auto &) { return true; });
+                    if (move_ptr < bad_moves.size())
+                        return bad_moves[move_ptr++];
+
+                    m_stage = DONE;
+                    break;
+                }
+
+                case QPV: {
+                    m_stage++;
+                    if (!m_pv.is_none() && m_board.is_legal(m_pv)) {
+                        return m_pv;
+                    }
+                    break;
+                }
+                case QCAPTURE_INIT: {
+                    movegen gen{m_board};
+                    moves = gen.get_captures();
+                    move_ptr = 0;
+
+                    // score moves
+                    for (int i = 0; i < moves.size(); ++i) {
+                        auto &m = moves[i];
+
+                        if (m.type() == move::NORMAL) {
+                            m.score = m_heur.capture_history[m_board.heights[m.square]][m.to()].get_value() -
+                                      m_board.heights[m.square] * 2;
+                        } else {
+                            m.score = m_heur.expand_history[m_board.heights[m.square]][m.square][m.get_dir()]
+                                              .get_value() -
+                                      m_board.heights[m.square] * 2;
+                        }
+                    }
+
+                    sort_moves(moves, 0, moves.size());
+
+                    m_stage++;
+                    break;
+                }
+                case QCAPTURE: {
+                    move_ptr = pick_move(moves, move_ptr, moves.size(),
+                                         [this](auto &m) { return this->eval_expand_pushoffs(m) > 0; });
+                    if (move_ptr < moves.size())
+                        return moves[move_ptr++];
+
+                    m_stage++;
+                    break;
+                }
+
+                case DONE: {
+                    return move::none();
+                }
             }
         }
     }
 
     template<typename Pred>
-    int pick_move(const std::vector<move>& moves, const int start, const int end, Pred filter)
-    {
-        for (int i = start; i < end; ++i)
-        {
+    int pick_move(const std::vector<move> &moves, const int start, const int end, Pred filter) {
+        for (int i = start; i < end; ++i) {
             if (!filter(moves[i]))
                 continue;
 
@@ -497,17 +520,13 @@ struct movepick
     }
 
 
-    static void sort_moves(std::vector<move>& moves, int start, int end,
-        int limit = std::numeric_limits<int16_t>::min())
-    {
-        for (int i = start + 1; i < end; ++i)
-        {
-            if (moves[i].score >= limit)
-            {
+    static void sort_moves(std::vector<move> &moves, int start, int end,
+                           int limit = std::numeric_limits<int16_t>::min()) {
+        for (int i = start + 1; i < end; ++i) {
+            if (moves[i].score >= limit) {
                 move temp = moves[i];
                 int j = i - 1;
-                while (j >= start && moves[j].score < temp.score)
-                {
+                while (j >= start && moves[j].score < temp.score) {
                     moves[j + 1] = moves[j];
                     j--;
                 }
@@ -517,83 +536,22 @@ struct movepick
     }
 };
 
-struct evaluator
-{
-    // note that 100 is 1 piece
-    int pst[64][13];
 
-    explicit evaluator()
-    {
-        // create pst
-        for (int i = 0; i < 64; ++i)
-        {
-            int row = i / 8;
-            int col = i % 8;
-            int sq = 3 - std::abs(row - 3) + 3 - std::abs(col - 3);
-            int sq_value = sq * 10;
-
-            for (int j = 0; j < 13; ++j)
-            {
-                int height_value = j * 20;
-                pst[i][j] = 50 + sq_value + height_value;
-            }
-        }
-    }
-
-    int evaluate(const board& board)
-    {
-        assert(board.get_state() == NONE);
-
-        int total = 0;
-
-        uint64_t occ = board.occ[0] | board.occ[1];
-        while (occ)
-        {
-            int i = __builtin_ctzll(occ);
-            occ ^= (1ull << i);
-
-            if (board.occ[board.side2move] & (1ull << i))
-            {
-                total += pst[i][board.heights[i]];
-            }
-            else
-            {
-                total -= pst[i][board.heights[i]];
-            }
-        }
-
-        // drop tempo
-        // if (board.is_drop())
-        // {
-        //     total += 10;
-        // }
-        // else
-        // {
-        //     total += 30;
-        // }
-
-        return total;
-    }
-};
-
-struct search_stack
-{
+struct search_stack {
     int ply;
     move m;
     int static_eval;
     int pv_length;
     std::array<move, MAX_DEPTH> pv_line;
 
-    void reset()
-    {
+    void reset() {
         ply = 0;
         m = move::none();
         static_eval = VALUE_NONE;
         pv_length = 0;
     }
 
-    void pv_update(const move& m, search_stack* next)
-    {
+    void pv_update(const move &m, search_stack *next) {
         pv_length = next->pv_length + 1;
         pv_line[0] = m;
 
@@ -602,10 +560,8 @@ struct search_stack
     }
 };
 
-struct engine
-{
-    struct result
-    {
+struct engine {
+    struct result {
         int depth;
         move m;
         int score;
@@ -621,23 +577,18 @@ struct engine
     heuristics m_heuristic;
     evaluator m_evaluator;
 
-    explicit engine(const board& board) : m_board(board), m_tt(1024), m_heuristic(), m_evaluator() {}
+    explicit engine(const board &board) : m_board(board), m_tt(1024), m_heuristic(), m_evaluator() {}
 
-    int evaluate()
-    {
-        return m_evaluator.evaluate(m_board);
-    }
+    int evaluate() { return m_evaluator.evaluate(m_board); }
 
-    template <bool is_pv_node>
-    int qsearch(int alpha, int beta, int depth, search_stack* ss)
-    {
+    template<bool is_pv_node>
+    int qsearch(int alpha, int beta, int depth, search_stack *ss) {
         assert(alpha < beta);
 
         ss->pv_length = 0;
         nodes += 1;
         sel_depth = std::max(sel_depth, ss->ply);
-        if ((nodes & 4095) == 0)
-        {
+        if ((nodes & 4095) == 0) {
             m_timer.check();
             if (m_timer.is_stopped())
                 return 0;
@@ -645,16 +596,14 @@ struct engine
 
         // terminal check
         int state = m_board.get_state();
-        if (state != NONE)
-        {
+        if (state != NONE) {
             if (state == DRAW)
                 return VALUE_DRAW;
 
             return -INF + ss->ply;
         }
 
-        if (ss->ply >= MAX_DEPTH - 5)
-        {
+        if (ss->ply >= MAX_DEPTH - 5) {
             return evaluate();
         }
 
@@ -669,7 +618,7 @@ struct engine
 
         // [tt lookup]
         uint64_t key = m_board.get_hash();
-        tt::entry* entry = m_tt.get_entry(key);
+        tt::entry *entry = m_tt.get_entry(key);
         tt::entry::data tt_data = entry->get(key, ss->ply, QDEPTH, alpha, beta);
 
         // early tt cutoff
@@ -679,25 +628,20 @@ struct engine
         int best_score = -INF;
         int unadjusted_static_score = VALUE_NONE;
         int adjusted_static_score = VALUE_NONE;
-        if (tt_data.hit)
-        {
+        if (tt_data.hit) {
             unadjusted_static_score = tt_data.static_score;
             if (!IS_VALID(unadjusted_static_score))
                 unadjusted_static_score = evaluate();
 
             adjusted_static_score = best_score = unadjusted_static_score;
 
-            bool bound_hit =
-                tt_data.flag == EXACT_FLAG ||
-                (tt_data.flag == BETA_FLAG && tt_data.score > adjusted_static_score)
-                || (tt_data.flag == ALPHA_FLAG && tt_data.score < adjusted_static_score);
-            if (IS_VALID(tt_data.score) && !IS_DECISIVE(tt_data.score) && bound_hit)
-            {
+            bool bound_hit = tt_data.flag == EXACT_FLAG ||
+                             (tt_data.flag == BETA_FLAG && tt_data.score > adjusted_static_score) ||
+                             (tt_data.flag == ALPHA_FLAG && tt_data.score < adjusted_static_score);
+            if (IS_VALID(tt_data.score) && !IS_DECISIVE(tt_data.score) && bound_hit) {
                 adjusted_static_score = best_score = tt_data.score;
             }
-        }
-        else
-        {
+        } else {
             unadjusted_static_score = evaluate();
             adjusted_static_score = best_score = unadjusted_static_score;
 
@@ -705,10 +649,8 @@ struct engine
         }
 
         // standing pat
-        if (best_score >= beta)
-        {
-            if (!IS_DECISIVE(best_score))
-            {
+        if (best_score >= beta) {
+            if (!IS_DECISIVE(best_score)) {
                 best_score = (beta + best_score) / 2;
             }
 
@@ -721,10 +663,9 @@ struct engine
         int score;
         move best_move = move::none();
         move m = move::none();
-        movepick gen{ tt_data.m, m_board, m_heuristic , movepick::stage::QPV };
+        movepick gen{tt_data.m, m_board, m_heuristic, m_evaluator, movepick::stage::QPV};
         int move_count = 0;
-        while (!(m = gen.next_move()).is_none())
-        {
+        while (!(m = gen.next_move()).is_none()) {
             move_count += 1;
 
             m_board.make_move(m);
@@ -734,12 +675,10 @@ struct engine
             if (m_timer.is_stopped())
                 return 0;
 
-            if (score > best_score)
-            {
+            if (score > best_score) {
                 best_score = score;
 
-                if (score > alpha)
-                {
+                if (score > alpha) {
                     best_move = m;
 
                     if (score >= beta)
@@ -749,16 +688,14 @@ struct engine
                 }
             }
 
-            if (!IS_LOSS(best_score))
-            {
+            if (!IS_LOSS(best_score)) {
                 if (move_count >= 5)
                     break;
             }
         }
 
         // average out the best score
-        if (!IS_DECISIVE(best_score) && best_score > beta)
-        {
+        if (!IS_DECISIVE(best_score) && best_score > beta) {
             best_score = (beta + best_score) / 2;
         }
 
@@ -769,15 +706,13 @@ struct engine
         return best_score;
     }
 
-    template <bool is_pv_node>
-    int negamax(int alpha, int beta, int depth, search_stack* ss, bool cut_node)
-    {
+    template<bool is_pv_node>
+    int negamax(int alpha, int beta, int depth, search_stack *ss, bool cut_node) {
         assert(alpha < beta);
 
         ss->pv_length = 0;
         nodes += 1;
-        if ((nodes & 4095) == 0)
-        {
+        if ((nodes & 4095) == 0) {
             m_timer.check();
             if (m_timer.is_stopped())
                 return 0;
@@ -785,8 +720,7 @@ struct engine
 
         // terminal check
         int state = m_board.get_state();
-        if (state != NONE)
-        {
+        if (state != NONE) {
             if (state == DRAW)
                 return VALUE_DRAW;
 
@@ -804,8 +738,7 @@ struct engine
         bool is_root = ss->ply == 0 && is_pv_node;
 
         // mate distance pruning
-        if (!is_root)
-        {
+        if (!is_root) {
             alpha = std::max(alpha, MATED_IN(ss->ply));
             beta = std::min(beta, MATE_IN(ss->ply + 1));
             if (alpha >= beta)
@@ -819,34 +752,30 @@ struct engine
 
         // tt lookup
         uint64_t key = m_board.get_hash();
-        tt::entry* entry = m_tt.get_entry(key);
+        tt::entry *entry = m_tt.get_entry(key);
         tt::entry::data tt_data = entry->get(key, ss->ply, depth, alpha, beta);
 
         // early tt cutoff
-        if (!is_pv_node && tt_data.can_use && (cut_node == (tt_data.score >= beta)) && tt_data.depth >= depth + (tt_data.score >= beta))
+        if (!is_pv_node && tt_data.can_use && (cut_node == (tt_data.score >= beta)) &&
+            tt_data.depth >= depth + (tt_data.score >= beta))
             return tt_data.score;
 
         int unadjusted_static_score = VALUE_NONE;
         int adjusted_static_score = VALUE_NONE;
-        if (tt_data.hit)
-        {
+        if (tt_data.hit) {
             unadjusted_static_score = tt_data.static_score;
             if (!IS_VALID(unadjusted_static_score))
                 unadjusted_static_score = evaluate();
 
             adjusted_static_score = unadjusted_static_score;
 
-            bool bound_hit =
-                tt_data.flag == EXACT_FLAG ||
-                (tt_data.flag == BETA_FLAG && tt_data.score > adjusted_static_score)
-                || (tt_data.flag == ALPHA_FLAG && tt_data.score < adjusted_static_score);
-            if (IS_VALID(tt_data.score) && !IS_DECISIVE(tt_data.score) && bound_hit)
-            {
+            bool bound_hit = tt_data.flag == EXACT_FLAG ||
+                             (tt_data.flag == BETA_FLAG && tt_data.score > adjusted_static_score) ||
+                             (tt_data.flag == ALPHA_FLAG && tt_data.score < adjusted_static_score);
+            if (IS_VALID(tt_data.score) && !IS_DECISIVE(tt_data.score) && bound_hit) {
                 adjusted_static_score = tt_data.score;
             }
-        }
-        else
-        {
+        } else {
             unadjusted_static_score = evaluate();
             adjusted_static_score = unadjusted_static_score;
 
@@ -855,14 +784,13 @@ struct engine
 
         // static null move pruning
         int margin = 100 * depth;
-        if (!is_pv_node && IS_VALID(adjusted_static_score) && adjusted_static_score - margin >= beta && !IS_LOSS(beta) && depth <= 5
-            && !IS_WIN(adjusted_static_score))
-        {
+        if (!is_pv_node && IS_VALID(adjusted_static_score) && adjusted_static_score - margin >= beta &&
+            !IS_LOSS(beta) && depth <= 5 && !IS_WIN(adjusted_static_score)) {
             return (beta + adjusted_static_score) / 2;
         }
 
         // negamax
-        movepick gen{ tt_data.m, m_board, m_heuristic };
+        movepick gen{tt_data.m, m_board, m_heuristic, m_evaluator, movepick::stage::PV};
         move m;
         int move_count = 0;
         int score;
@@ -872,15 +800,13 @@ struct engine
         std::vector<move> capture_moves{};
         std::vector<move> expand_moves{};
         std::vector<move> quiet_moves{};
-        while (!(m = gen.next_move()).is_none())
-        {
+        while (!(m = gen.next_move()).is_none()) {
             move_count += 1;
 
             int new_depth = depth - 1;
             m_board.make_move(m);
 
-            if (depth >= 2 && move_count > 1 + 2 * is_root)
-            {
+            if (depth >= 2 && move_count > 1 + 2 * is_root) {
                 int reduction = m_heuristic.get_lmr(depth, move_count);
 
                 if (cut_node)
@@ -890,19 +816,15 @@ struct engine
 
                 int reduced_depth = std::clamp(new_depth - reduction, 1, new_depth + 1);
                 score = -negamax<false>(-(alpha + 1), -alpha, reduced_depth, ss + 1, true);
-                if (score > alpha && reduced_depth < new_depth)
-                {
+                if (score > alpha && reduced_depth < new_depth) {
                     if (reduced_depth < new_depth)
                         score = -negamax<false>(-(alpha + 1), -alpha, new_depth, ss + 1, !cut_node);
                 }
-            }
-            else if (!is_pv_node || move_count > 1)
-            {
+            } else if (!is_pv_node || move_count > 1) {
                 score = -negamax<false>(-(alpha + 1), -alpha, new_depth, ss + 1, !cut_node);
             }
 
-            if (is_pv_node && (move_count == 1 || score > alpha))
-            {
+            if (is_pv_node && (move_count == 1 || score > alpha)) {
                 score = -negamax<true>(-beta, -alpha, new_depth, ss + 1, false);
             }
 
@@ -911,12 +833,10 @@ struct engine
             if (m_timer.is_stopped())
                 return 0;
 
-            if (score > best_score)
-            {
+            if (score > best_score) {
                 best_score = score;
 
-                if (score > alpha)
-                {
+                if (score > alpha) {
                     best_move = m;
                     if (is_pv_node)
                         ss->pv_update(best_move, ss + 1);
@@ -929,73 +849,65 @@ struct engine
             }
 
             // malus
-            switch (m.type())
-            {
-            case move::PLACE: {
-                drop_moves.push_back(m);
-                break;
-            }
-            case move::EXPAND: {
-                expand_moves.push_back(m);
-                break;
-            }
-            case move::NORMAL: {
-                if (m_board.at(m.to()).side != m_board.side2move)
-                {
-                    capture_moves.push_back(m);
+            switch (m.type()) {
+                case move::PLACE: {
+                    drop_moves.push_back(m);
+                    break;
                 }
-                else
-                {
-                    quiet_moves.push_back(m);
+                case move::EXPAND: {
+                    expand_moves.push_back(m);
+                    break;
                 }
-            }
+                case move::NORMAL: {
+                    if (m_board.at(m.to()).side != m_board.side2move) {
+                        capture_moves.push_back(m);
+                    } else {
+                        quiet_moves.push_back(m);
+                    }
+                }
             }
         }
 
         // history update
-        if (best_score >= beta)
-        {
+        if (best_score >= beta) {
             int bonus = 150 * depth - 30;
             int malus = 150 * depth - 30;
 
-            if (m_board.is_drop())
-            {
+            if (m_board.is_drop()) {
                 m_heuristic.drop_history[m_board.heights[best_move.square]][best_move.square].add_bonus(bonus);
-                for (auto& m : drop_moves)
+                for (auto &m: drop_moves)
                     m_heuristic.drop_history[m_board.heights[m.square]][m.square].add_bonus(-malus);
-            }
-            else
-            {
-                switch (best_move.type())
-                {
-                case move::NORMAL: {
-                    if (m_board.at(best_move.to()).side != m_board.side2move)
-                    {
-                        m_heuristic.capture_history[m_board.heights[best_move.square]][best_move.to()].add_bonus(bonus);
+            } else {
+                switch (best_move.type()) {
+                    case move::NORMAL: {
+                        if (m_board.at(best_move.to()).side != m_board.side2move) {
+                            m_heuristic.capture_history[m_board.heights[best_move.square]][best_move.to()].add_bonus(
+                                    bonus);
+                        } else {
+                            m_heuristic.main_history[best_move.square][best_move.to()].add_bonus(bonus);
+
+                            for (auto &m: quiet_moves)
+                                m_heuristic.main_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
+                        }
+
+                        break;
                     }
-                    else
-                    {
-                        m_heuristic.main_history[best_move.square][best_move.to()].add_bonus(bonus);
+                    case move::EXPAND: {
+                        m_heuristic
+                                .expand_history[m_board.heights[best_move.square]][best_move.square]
+                                               [best_move.get_dir()]
+                                .add_bonus(bonus);
 
-                        for (auto& m : quiet_moves)
-                            m_heuristic.main_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
+                        break;
                     }
-
-                    break;
-                }
-                case move::EXPAND: {
-                    m_heuristic.expand_history[m_board.heights[best_move.square]][best_move.square][best_move.get_dir()].add_bonus(bonus);
-
-                    break;
-                }
                 }
 
                 // always penaltize capture/expands
 
-                for (auto& m : capture_moves)
+                for (auto &m: capture_moves)
                     m_heuristic.capture_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
 
-                for (auto& m : expand_moves)
+                for (auto &m: expand_moves)
                     m_heuristic.expand_history[m_board.heights[m.square]][m.square][m.get_dir()].add_bonus(-malus);
             }
         }
@@ -1008,59 +920,48 @@ struct engine
     }
 
 
-    result search(int64_t max_time, int64_t opt_time)
-    {
+    result search(int64_t max_time, int64_t opt_time) {
         nodes = 0;
         sel_depth = 0;
 
         m_timer.start(opt_time, max_time);
 
         // setup search stack
-        for (int i = 0; i < SS_HEAD; ++i)
-        {
+        for (int i = 0; i < SS_HEAD; ++i) {
             m_ss[i].reset();
         }
 
-        for (int i = 0; i < MAX_DEPTH; ++i)
-        {
+        for (int i = 0; i < MAX_DEPTH; ++i) {
             m_ss[i + SS_HEAD].reset();
             m_ss[i + SS_HEAD].ply = i;
         }
 
-        result res = { .depth = 0, .m = move::none(), .score = 0 };
+        result res = {.depth = 0, .m = move::none(), .score = 0};
 
-        for (int depth = 1; depth < MAX_DEPTH; ++depth)
-        {
+        for (int depth = 1; depth < MAX_DEPTH; ++depth) {
             int alpha = -INF;
             int beta = INF;
 
-            int window = 300;
+            int window = 100;
 
-            if (depth > 4)
-            {
+            if (depth > 4) {
                 alpha = std::max(-INF, res.score - window);
                 beta = std::min(INF, res.score + window);
             }
 
             // asp window search
-            while (true)
-            {
+            while (true) {
                 int score = negamax<true>(alpha, beta, depth, &m_ss[SS_HEAD], false);
                 if (m_timer.is_stopped())
                     break;
 
-                if (score <= alpha)
-                {
+                if (score <= alpha) {
                     beta = alpha + 1;
                     alpha = std::max(-INF, score - window);
-                }
-                else if (score >= beta)
-                {
+                } else if (score >= beta) {
                     alpha = beta - 1;
                     beta = std::min(INF, score + window);
-                }
-                else
-                {
+                } else {
                     res.depth = depth;
                     res.score = score;
                     break;
@@ -1077,14 +978,17 @@ struct engine
                 break;
 
             // print stats
-            std::cout << "info" << " depth " << res.depth << " seldepth " << sel_depth << " score " << score_to_cp(res.score) << " nodes " << nodes << " time " << timer::now() - m_timer.base << " pv";
+            std::cout << "info" << " depth " << res.depth << " seldepth " << sel_depth << " score "
+                      << score_to_cp(res.score) << " nodes " << nodes << " time " << timer::now() - m_timer.base
+                      << " pv";
             for (int i = 0; i < m_ss[SS_HEAD].pv_length; ++i)
                 std::cout << " " << m_ss[SS_HEAD].pv_line[i].str();
             std::cout << "\n";
         }
 
         // print stats
-        std::cout << "info" << " depth " << res.depth << " seldepth " << sel_depth << " score " << score_to_cp(res.score) << " nodes " << nodes << " time " << timer::now() - m_timer.base << " pv";
+        std::cout << "info" << " depth " << res.depth << " seldepth " << sel_depth << " score "
+                  << score_to_cp(res.score) << " nodes " << nodes << " time " << timer::now() - m_timer.base << " pv";
         for (int i = 0; i < m_ss[SS_HEAD].pv_length; ++i)
             std::cout << " " << m_ss[SS_HEAD].pv_line[i].str();
         std::cout << "\n";
