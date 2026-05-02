@@ -3,6 +3,7 @@
 #include <iterator>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 #include "board.hpp"
 #include "engine.hpp"
@@ -81,7 +82,6 @@ struct uci_wrapper {
         std::string out;
         while (true) {
             std::getline(stream.out(), out);
-            // std::cout << "info:" << out << std::endl;
             if (out.starts_with("bestmove")) {
                 auto parts = string_split(out);
                 return move::of_string(parts[1]);
@@ -100,13 +100,65 @@ struct result {
     }
 
     void display() {
-        std::cout << "[ ";
+        std::cout << "======================\n";
+        std::cout << "pent: [";
         for (auto &i: pent)
-            std::cout << i << " ,";
+            std::cout << " " << i;
 
         std::cout << "]\n";
+        stats();
+        std::cout << "======================\n";
+    }
+
+    void stats() {
+        // Thanks LLM AI
+        double N = std::accumulate(pent.begin(), pent.end(), 0.0);
+
+        if (N <= 0)
+            return;
+
+        // Calculate Probabilities (P_i)
+        std::vector<double> p(5);
+        for (int i = 0; i < 5; ++i) {
+            p[i] = pent[i] / N;
+        }
+
+        // Mean (mu) and Variance (sigma^2)
+        double mu = 0.0;
+        for (int i = 0; i < 5; ++i)
+            mu += i * p[i];
+
+        double var = 0.0;
+        for (int i = 0; i < 5; ++i)
+            var += std::pow(i, 2) * p[i];
+        var -= std::pow(mu, 2);
+
+        // Standard Error of the mean
+        double st_error = std::sqrt(std::max(0.0, var)) / std::sqrt(N);
+
+        // Mean score per game (s) on scale [0, 1]
+        // mu is for a pair (max 4 pts), so we divide by 4
+        double s = mu / 4.0;
+
+        // Clamp s to avoid log(0) or division by zero
+        s = std::max(1e-6, std::min(1.0 - 1e-6, s));
+
+        // Calculate Elo Gain
+        double elo_diff = -400.0 * std::log10(1.0 / s - 1.0);
+
+        // Elo Error Margin calculation via the Delta Method
+        // Derivative of the Elo formula: 400 / (s * (1 - s) * ln(10))
+        const double confidence_z = 1.96;
+        double phi = st_error * confidence_z;
+        double elo_derivative = 400.0 / (s * (1.0 - s) * std::log(10.0));
+        double elo_error = elo_derivative * (phi / 4.0);
+
+        std::cout << "elo: " << elo_diff << " +- " << elo_error << "\n";
+        std::cout << "points " << s * 100.0 << "%\n";
     }
 };
+
+std::mutex runner_lock;
 
 struct runner {
     uci_wrapper alpha;
@@ -140,11 +192,13 @@ struct runner {
 
         auto game = [this, &opening, &num](int alpha_side2move) -> double {
             int n = num.fetch_add(1);
-            std::cout << "starting game: " << n;
+            runner_lock.lock();
+            std::cout << "starting game " << n << ":";
             if (alpha_side2move == WHITE)
                 std::cout << " ALPHA vs BETA\n";
             else
                 std::cout << " BETA vs ALPHA\n";
+            runner_lock.unlock();
 
             std::array<int64_t, 2> clock{180 * 1000, 180 * 1000};
 
@@ -170,6 +224,7 @@ struct runner {
                 moves.push_back(m);
             }
 
+            runner_lock.lock();
             double result = 0.0;
             if (board.get_state() == DRAW) {
                 std::cout << "game " << n << " result: DRAW\n";
@@ -181,6 +236,8 @@ struct runner {
                 std::cout << "game " << n << " result: BETA WINS\n";
                 result = -1.0;
             }
+            runner_lock.unlock();
+
 
             return result;
         };
@@ -192,14 +249,35 @@ struct runner {
 int main(int argc, char **argv) {
     // check for runner
     if (argc >= 4 && std::string{argv[1]} == "runner") {
+        std::string alpha = std::string{argv[2]};
+        std::string beta = std::string{argv[3]};
         std::atomic<int> num = 0;
-        runner run{std::string{argv[2]}, std::string{argv[3]}};
+
+        int thread_count = 14;
+        std::vector<std::thread> threads;
+        std::mutex res_lock;
         result res{};
-        while (true) {
-            res.display();
-            auto score = run.round(num);
-            res.add(score);
+
+        for (int i = 0; i < thread_count; ++i) {
+            threads.push_back(std::thread([alpha, beta, &num, &res, &res_lock]() {
+                runner run{alpha, beta};
+                while (true) {
+                    auto score = run.round(num);
+                    res_lock.lock();
+                    res.add(score);
+                    res_lock.unlock();
+
+                    if (num.load() % 2 == 0) {
+                        res_lock.lock();
+                        res.display();
+                        res_lock.unlock();
+                    }
+                }
+            }));
         }
+
+        for (int i = 0; i < thread_count; ++i)
+            threads[i].join();
 
         return 0;
     }
