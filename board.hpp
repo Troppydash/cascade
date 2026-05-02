@@ -96,7 +96,7 @@ struct move {
     }
 
     static int of_dir(int encoded) {
-        const std::array<int, 4> mapping = {UP, DOWN, LEFT, RIGHT};
+        constexpr std::array<int, 4> mapping = {UP, DOWN, LEFT, RIGHT};
         return mapping[encoded];
     }
 
@@ -158,11 +158,11 @@ struct move {
     std::string str() const {
         switch (type()) {
             case PLACE:
-                return std::format("P{}{}", row() + 1, col() + 1);
+                return std::format("P{}{}", row(), col());
             case NORMAL:
-                return std::format("N{}{}{}", row() + 1, col() + 1, get_dir());
+                return std::format("N{}{}{}", row(), col(), get_dir());
             case EXPAND: {
-                return std::format("E{}{}{}", row() + 1, col() + 1, get_dir());
+                return std::format("E{}{}{}", row(), col(), get_dir());
             }
             default:
                 std::cerr << "display failed\n";
@@ -174,15 +174,15 @@ struct move {
 
     static move of_string(const std::string &str) {
         if (str[0] == 'P') {
-            return make_drop(make_sq(str[1] - '1', str[2] - '1'));
+            return make_drop(make_sq(str[1] - '0', str[2] - '0'));
         }
 
         if (str[0] == 'N') {
-            return make_normal(make_sq(str[1] - '1', str[2] - '1'), of_dir(str[3] - '0'));
+            return make_normal(make_sq(str[1] - '0', str[2] - '0'), of_dir(str[3] - '0'));
         }
 
         if (str[0] == 'E') {
-            return make_expand(make_sq(str[1] - '1', str[2] - '1'), of_dir(str[3] - '0'));
+            return make_expand(make_sq(str[1] - '0', str[2] - '0'), of_dir(str[3] - '0'));
         }
 
         std::cerr << "invalid move\n";
@@ -303,15 +303,8 @@ struct board {
                     break;
                 }
                 case move::PLACE: {
-                    if (occ[side2move] & (1ull << m.square)) {
-                        assert(heights[m.square] > 0);
-                        hash ^= zob.pst[heights[m.square]][m.square][side2move];
-                    } else {
-                        assert(heights[m.square] == 0);
-                        occ[side2move] |= (1ull << m.square);
-                    }
-
-                    heights[m.square] += PLACE_SIZE;
+                    occ[side2move] |= (1ull << m.square);
+                    heights[m.square] = PLACE_SIZE;
                     hash ^= zob.pst[heights[m.square]][m.square][side2move];
                     break;
                 }
@@ -323,7 +316,7 @@ struct board {
                     std::array<int, SIZE> shifts{};
 
                     int limit = m.edge_distance();
-                    int power = (int) heights[m.square] - 1;
+                    int power = (int) heights[m.square];
                     int before = power;
                     for (int step = 1; step <= limit; ++step) {
                         int sq = m.square + m.dir * step;
@@ -386,9 +379,8 @@ struct board {
                     }
 
                     hash ^= zob.pst[heights[m.square]][m.square][side2move];
-                    hash ^= zob.pst[1][m.square][side2move];
-
-                    heights[m.square] = 1;
+                    heights[m.square] = 0;
+                    occ[side2move] ^= (1ull << m.square);
 
                     break;
                 }
@@ -421,9 +413,8 @@ struct board {
                     break;
                 }
                 case move::PLACE: {
-                    heights[m.square] -= PLACE_SIZE;
-                    if (heights[m.square] == 0)
-                        occ[side2move] ^= (1ull << m.square);
+                    heights[m.square] = 0;
+                    occ[side2move] ^= (1ull << m.square);
                     break;
                 }
                 case move::EXPAND: {
@@ -489,7 +480,7 @@ struct board {
             if (heights[idx] == 1) {
 
                 // check if opp has height 2
-                uint64_t mask = occ[side2move^1];
+                uint64_t mask = occ[side2move ^ 1];
                 while (mask) {
                     int i = __builtin_ctzll(mask);
                     mask ^= (1ull << i);
@@ -622,8 +613,22 @@ struct board {
 struct movegen {
     const board &m_board;
 
+    static uint64_t dilate(uint64_t M) {
+        uint64_t up = M >> 8;
+        uint64_t down = M << 8;
+        // Masking ensures bits on the left edge don't wrap to the right of the row above
+        uint64_t left = (M & 0xFEFEFEFEFEFEFEFEULL) >> 1;
+        uint64_t right = (M & 0x7F7F7F7F7F7F7F7FULL) << 1;
+
+        // Combine them all with OR
+        return M | up | down | left | right;
+    }
+
     std::vector<move> get_drops() {
-        uint64_t occ = ~m_board.occ[m_board.side2move ^ 1];
+        // expand on opponent
+        uint64_t opp_occ = m_board.occ[m_board.side2move ^ 1];
+        uint64_t occ = ~dilate(opp_occ) - m_board.occ[m_board.side2move];
+
         std::vector<move> moves{};
         while (occ) {
             int idx = __builtin_ctzll(occ);

@@ -24,7 +24,7 @@ struct uci {
     explicit uci() {}
 
     void loop() {
-        tt tt{256};
+        tt tt{32};
 
         while (true) {
             std::string line;
@@ -49,6 +49,7 @@ struct uci {
                     moves.push_back(move::of_string(parts[i]));
 
                 auto board = movegen::create_board(moves);
+                // board.display();
                 engine eng{board, &tt};
                 auto result = eng.search(100, 200);
                 std::cout << "bestmove " << result.m.str() << std::endl;
@@ -108,11 +109,14 @@ struct result {
 
     void display() {
         std::cout << "======================\n";
-        std::cout << "pent: [";
-        for (auto &i: pent)
-            std::cout << " " << i;
+        std::cout << "pent: [ ";
+        for (int i = 0; i < 5; ++i) {
+            std::cout << " " << pent[i];
+            if (i != 4)
+                std::cout << ",";
+        }
 
-        std::cout << "]\n";
+        std::cout << " ]\n";
         stats();
         std::cout << "======================\n";
     }
@@ -161,7 +165,7 @@ struct result {
         double elo_error = elo_derivative * (phi / 4.0);
 
         std::cout << "elo: " << elo_diff << " +- " << elo_error << "\n";
-        std::cout << "points " << s * 100.0 << "%\n";
+        std::cout << "edge: " << s * 100.0 - 50.0 << "%\n";
     }
 };
 
@@ -270,7 +274,7 @@ int main(int argc, char **argv) {
         std::string beta = std::string{argv[3]};
         std::atomic<int> num = 0;
 
-        int thread_count = 20;
+        int thread_count = 24;
         std::vector<std::thread> threads;
         std::mutex res_lock;
         result res{};

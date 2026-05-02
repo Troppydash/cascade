@@ -340,7 +340,7 @@ struct movepick {
 
     int eval_expand_pushoffs(const move &m) const {
         assert(m.type() == move::EXPAND);
-        int score = m_eval.pst[m.square][1] - m_eval.pst[m.square][m_board.at(m.square).height];
+        int score = -m_eval.pst[m.square][m_board.at(m.square).height];
 
         int limit = m.edge_distance();
         int power = (int) m_board.heights[m.square] - 1;
@@ -360,6 +360,8 @@ struct movepick {
                     }
                 }
             } else {
+                score += m_eval.pst[sq][1];
+
                 before -= 1;
                 if (before == 0) {
                     break;
