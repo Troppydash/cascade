@@ -49,8 +49,8 @@ std::string score_to_cp(int score) {
 }
 
 namespace param {
-    constexpr int EXPAND_QSEARCH_COST = 100;
-    constexpr int EXPAND_COST = 50;
+    constexpr int EXPAND_QSEARCH_COST = 200;
+    constexpr int EXPAND_COST = 100;
 }; // namespace param
 
 struct timer {
@@ -247,10 +247,13 @@ struct evaluator {
             int row = i / 8;
             int col = i % 8;
             int sq = 3 - std::abs(row - 3) + 3 - std::abs(col - 3);
-            int sq_value = sq * 2;
+            int sq_value = sq * 5;
 
             for (int j = 0; j < 13; ++j) {
                 int height_value = j * 100;
+                if (j > 6) {
+                    height_value -= (j - 6) * 50;
+                }
                 pst[i][j] = sq_value + height_value;
             }
         }

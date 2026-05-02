@@ -198,7 +198,7 @@ struct runner {
     }
 
     std::pair<float, float> round(std::atomic<int> &num) {
-        int depth = 3;
+        int depth = 2;
         auto opening = get_opening(depth);
 
         auto game = [this, &opening, &num](int alpha_side2move) -> double {

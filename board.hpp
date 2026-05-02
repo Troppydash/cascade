@@ -475,7 +475,7 @@ struct board {
     }
 
     bool is_lost() const {
-        if (std::popcount(occ[side2move]) == 1) {
+        if (!is_drop() && std::popcount(occ[side2move]) == 1) {
             int idx = __builtin_ctzll(occ[side2move]);
             if (heights[idx] == 1) {
 
