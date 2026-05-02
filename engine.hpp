@@ -597,11 +597,11 @@ struct engine {
     int64_t nodes;
     int sel_depth;
 
-    tt m_tt;
+    tt *m_tt;
     heuristics m_heuristic;
     evaluator m_evaluator;
 
-    explicit engine(const board &board) : m_board(board), m_tt(1024), m_heuristic(), m_evaluator() {}
+    explicit engine(const board &board, tt *tt) : m_board(board), m_tt(tt), m_heuristic(), m_evaluator() {}
 
     int evaluate() { return m_evaluator.evaluate(m_board); }
 
@@ -643,7 +643,7 @@ struct engine {
 
         // [tt lookup]
         uint64_t key = m_board.get_hash();
-        tt::entry *entry = m_tt.get_entry(key);
+        tt::entry *entry = m_tt->get_entry(key);
         tt::entry::data tt_data = entry->get(key, ss->ply, QDEPTH, alpha, beta);
 
         // early tt cutoff
@@ -779,7 +779,7 @@ struct engine {
 
         // tt lookup
         uint64_t key = m_board.get_hash();
-        tt::entry *entry = m_tt.get_entry(key);
+        tt::entry *entry = m_tt->get_entry(key);
         tt::entry::data tt_data = entry->get(key, ss->ply, depth, alpha, beta);
 
         // early tt cutoff

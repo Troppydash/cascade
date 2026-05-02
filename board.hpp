@@ -45,7 +45,7 @@ struct move {
         return {.expand = false, .square = square, .dir = NONE};
     }
 
-    static move make_normal(int square, int height, int dir) {
+    static move make_normal(int square, int dir) {
         assert(square >= 0 && square < 64);
         return {.expand = false, .square = square, .dir = dir};
     }
@@ -93,6 +93,11 @@ struct move {
                 std::cerr << "valid_normal failed\n";
                 exit(1);
         }
+    }
+
+    static int of_dir(int encoded) {
+        const std::array<int, 4> mapping = {UP, DOWN, LEFT, RIGHT};
+        return mapping[encoded];
     }
 
     bool is_none() const { return (square == 64); }
@@ -155,29 +160,33 @@ struct move {
             case PLACE:
                 return std::format("P{}{}", row() + 1, col() + 1);
             case NORMAL:
-                return std::format("N{}{}{}{}", row() + 1, col() + 1, (to() / SIZE) + 1, (to() % SIZE) + 1);
+                return std::format("N{}{}{}", row() + 1, col() + 1, get_dir());
             case EXPAND: {
-                int value = 0;
-                switch (dir) {
-                    case UP:
-                        value = 0;
-                        break;
-                    case DOWN:
-                        value = 1;
-                        break;
-                    case LEFT:
-                        value = 2;
-                        break;
-                    case RIGHT:
-                        value = 1;
-                        break;
-                }
-                return std::format("E{}{}{}", row() + 1, col() + 1, value);
+                return std::format("E{}{}{}", row() + 1, col() + 1, get_dir());
             }
             default:
                 std::cerr << "display failed\n";
                 exit(1);
         }
+    }
+
+    static int make_sq(int row, int col) { return row * SIZE + col; }
+
+    static move of_string(const std::string &str) {
+        if (str[0] == 'P') {
+            return make_drop(make_sq(str[1] - '1', str[2] - '1'));
+        }
+
+        if (str[0] == 'N') {
+            return make_normal(make_sq(str[1] - '1', str[2] - '1'), of_dir(str[3] - '0'));
+        }
+
+        if (str[0] == 'E') {
+            return make_expand(make_sq(str[1] - '1', str[2] - '1'), of_dir(str[3] - '0'));
+        }
+
+        std::cerr << "invalid move\n";
+        exit(0);
     }
 };
 
@@ -246,7 +255,7 @@ struct board {
         return start;
     }
 
-    void make_move(move &m) {
+    void make_move(const move &m) {
         const zobrist &zob = zobrist::get();
         uint64_t hash = past[past_length].hash;
         hash ^= zob.side2move;
@@ -573,7 +582,7 @@ struct movegen {
                 if (move::valid_normal(idx, dir)) {
                     if (!(m_board.occ[m_board.side2move ^ 1] & (1ull << (idx + dir))) ||
                         m_board.heights[idx] >= m_board.heights[idx + dir])
-                        moves.push_back(move::make_normal(idx, m_board.heights[idx], dir));
+                        moves.push_back(move::make_normal(idx, dir));
                 }
             }
         }
@@ -641,7 +650,7 @@ struct movegen {
                 if (move::valid_normal(idx, dir)) {
                     if ((m_board.occ[m_board.side2move ^ 1] & (1ull << (idx + dir))) &&
                         m_board.heights[idx] >= m_board.heights[idx + dir])
-                        moves.push_back(move::make_normal(idx, m_board.heights[idx], dir));
+                        moves.push_back(move::make_normal(idx, dir));
                 }
             }
         }
@@ -661,11 +670,19 @@ struct movegen {
             for (int dir: dirs) {
                 if (move::valid_normal(idx, dir)) {
                     if (!(m_board.occ[m_board.side2move ^ 1] & (1ull << (idx + dir))))
-                        moves.push_back(move::make_normal(idx, m_board.heights[idx], dir));
+                        moves.push_back(move::make_normal(idx, dir));
                 }
             }
         }
 
         return moves;
+    }
+
+    static board create_board(const std::vector<move> &moves) {
+        board startpos = board::startpos();
+        for (auto &m: moves)
+            startpos.make_move(m);
+
+        return startpos;
     }
 };
