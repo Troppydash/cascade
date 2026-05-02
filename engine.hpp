@@ -325,6 +325,7 @@ struct movepick {
     const heuristics &m_heur;
     const evaluator &m_eval;
     int m_ply;
+    bool m_skip_quiet;
 
     int move_ptr;
     int bad_moves;
@@ -333,7 +334,8 @@ struct movepick {
     // negamax, qsearch
     explicit movepick(const move &pv, const board &board, int ply, const heuristics &heur, const evaluator &eval,
                       stage st = PV) :
-        m_pv(pv), m_board(board), m_heur(heur), m_eval(eval), m_ply(ply), move_ptr{0}, moves{}, bad_moves{} {
+        m_pv(pv), m_board(board), m_heur(heur), m_eval(eval), m_ply(ply), move_ptr{0}, moves{}, bad_moves{},
+        m_skip_quiet{false} {
         if (m_board.is_drop())
             m_stage = DROP_PV;
         else
@@ -374,6 +376,8 @@ struct movepick {
 
         return score;
     }
+
+    void skip_quiet() { m_skip_quiet = true; }
 
     move next_move() {
         while (true) {
@@ -469,40 +473,45 @@ struct movepick {
                     break;
                 }
                 case QUIET_INIT: {
-                    movegen gen{m_board};
-                    std::vector<move> quiets = gen.get_quiets();
                     move_ptr = moves.size();
-                    moves.insert(moves.end(), std::make_move_iterator(quiets.begin()),
-                                 std::make_move_iterator(quiets.end()));
 
-                    // score moves
-                    for (int i = move_ptr; i < moves.size(); ++i) {
-                        auto &m = moves[i];
+                    if (!m_skip_quiet) {
+                        movegen gen{m_board};
+                        std::vector<move> quiets = gen.get_quiets();
+                        moves.insert(moves.end(), std::make_move_iterator(quiets.begin()),
+                                     std::make_move_iterator(quiets.end()));
 
-                        if (m == m_pv) {
-                            std::swap(m, moves.back());
-                            moves.pop_back();
-                            i--;
-                            continue;
+                        // score moves
+                        for (int i = move_ptr; i < moves.size(); ++i) {
+                            auto &m = moves[i];
+
+                            if (m == m_pv) {
+                                std::swap(m, moves.back());
+                                moves.pop_back();
+                                i--;
+                                continue;
+                            }
+
+                            m.score = m_heur.main_history[m.square][m.to()].get_value();
+
+                            if (m == m_heur.killers[m_ply][0])
+                                m.score = 32000;
+                            else if (m == m_heur.killers[m_ply][1])
+                                m.score = 31000;
                         }
 
-                        m.score = m_heur.main_history[m.square][m.to()].get_value();
-
-                        if (m == m_heur.killers[m_ply][0])
-                            m.score = 32000;
-                        else if (m == m_heur.killers[m_ply][1])
-                            m.score = 31000;
+                        sort_moves(moves, move_ptr, moves.size());
                     }
-
-                    sort_moves(moves, move_ptr, moves.size());
 
                     m_stage++;
                     break;
                 }
                 case QUIET: {
-                    move_ptr = pick_move(moves, move_ptr, moves.size(), [](auto &) { return true; });
-                    if (move_ptr < moves.size())
-                        return moves[move_ptr++];
+                    if (!m_skip_quiet) {
+                        move_ptr = pick_move(moves, move_ptr, moves.size(), [](auto &) { return true; });
+                        if (move_ptr < moves.size())
+                            return moves[move_ptr++];
+                    }
 
                     move_ptr = 0;
                     m_stage++;
@@ -874,7 +883,7 @@ struct engine {
             return tt_data.score;
 
         bool tt_noisy = !tt_data.m.is_none() && (tt_data.m.type() == move::EXPAND ||
-                                                 tt_data.m.type() == move::EXPAND && m_board.is_capture(tt_data.m));
+                                                 (tt_data.m.type() == move::NORMAL && m_board.is_capture(tt_data.m)));
 
         int unadjusted_static_score = VALUE_NONE;
         int adjusted_static_score = VALUE_NONE;
@@ -883,7 +892,7 @@ struct engine {
             if (!IS_VALID(unadjusted_static_score))
                 unadjusted_static_score = evaluate();
 
-            adjusted_static_score = unadjusted_static_score;
+            ss->static_eval = adjusted_static_score = unadjusted_static_score;
 
             bool bound_hit = tt_data.flag == EXACT_FLAG ||
                              (tt_data.flag == BETA_FLAG && tt_data.score > adjusted_static_score) ||
@@ -893,9 +902,16 @@ struct engine {
             }
         } else {
             unadjusted_static_score = evaluate();
-            adjusted_static_score = unadjusted_static_score;
+            ss->static_eval = adjusted_static_score = unadjusted_static_score;
 
             entry->set(key, NO_FLAG, VALUE_NONE, ss->ply, UNSEARCHED_DEPTH, move::none(), unadjusted_static_score);
+        }
+
+        bool improving = false;
+        if (IS_VALID((ss - 2)->static_eval) && IS_VALID(ss->static_eval)) {
+            improving = ss->static_eval > (ss - 2)->static_eval;
+        } else if (IS_VALID((ss - 4)->static_eval) && IS_VALID(ss->static_eval)) {
+            improving = ss->static_eval > (ss - 4)->static_eval;
         }
 
         // razoring
@@ -907,7 +923,7 @@ struct engine {
         // static null move pruning
         int margin = 100 * depth;
         if (!is_pv_node && IS_VALID(adjusted_static_score) && adjusted_static_score - margin >= beta &&
-            !IS_LOSS(beta) && depth <= 8 && !IS_WIN(adjusted_static_score)) {
+            !IS_LOSS(beta) && depth <= 10 && !IS_WIN(adjusted_static_score) && (tt_data.m.is_none() || tt_noisy)) {
             return (beta + adjusted_static_score) / 2;
         }
 
@@ -951,11 +967,28 @@ struct engine {
         while (!(m = gen.next_move()).is_none()) {
             move_count += 1;
 
+            // low depth pruning
+            if (!is_root && count >= 2 && !IS_LOSS(best_score)) {
+                int lmr_depth = std::clamp(depth - m_heuristic->get_lmr(depth, move_count), 1, depth + 1);
+
+                // late move pruning
+                if (move_count >= (3 + depth * depth) / (2 - improving)) {
+                    gen.skip_quiet();
+                }
+
+                // fut prune
+                if (m.type() == move::NORMAL && !m_board.is_capture(m) && lmr_depth <= 6 &&
+                    ss->static_eval + 200 + 200 * lmr_depth <= alpha) {
+                    gen.skip_quiet();
+                    continue;
+                }
+            }
+
             int new_depth = depth - 1;
             ss->m = m;
             m_board.make_move(m);
 
-
+            // lmr
             if (depth >= 2 && move_count > 1 + 2 * is_root) {
                 int reduction = m_heuristic->get_lmr(depth, move_count);
 
@@ -964,7 +997,9 @@ struct engine {
 
                 reduction -= is_pv_node;
 
-                reduction -= m.score / 10000;
+                reduction += tt_noisy;
+
+                reduction -= m.score / 8000;
 
 
                 int reduced_depth = std::clamp(new_depth - reduction, 1, new_depth + 1);
