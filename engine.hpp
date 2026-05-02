@@ -1073,7 +1073,7 @@ struct engine {
 
         // history update
         if (best_score >= beta) {
-            int bonus = 200 * depth - 30;
+            int bonus = 170 * depth - 30;
             int malus = 200 * depth - 30;
 
             if (m_board.is_drop()) {
@@ -1165,9 +1165,9 @@ struct engine {
             int alpha = -INF;
             int beta = INF;
 
-            int window = 100;
+            int window = 50 + res.score * res.score / 13000;
 
-            if (depth > 4) {
+            if (depth > 5) {
                 alpha = std::max(-INF, res.score - window);
                 beta = std::min(INF, res.score + window);
             }
@@ -1193,7 +1193,8 @@ struct engine {
             }
 
             // update pv
-            res.m = m_ss[SS_HEAD].pv_line[0];
+            if (m_ss[SS_HEAD].pv_length > 0)
+                res.m = m_ss[SS_HEAD].pv_line[0];
 
             if (m_timer.is_stopped())
                 break;
