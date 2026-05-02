@@ -348,6 +348,7 @@ struct movepick {
         for (int step = 1; step <= limit; ++step) {
             int sq = m.square + m.dir * step;
             assert(sq < 64 && sq >= 0);
+            score += m_eval.pst[sq][1];
             if ((m_board.occ[0] | m_board.occ[1]) & (1ull << sq)) {
                 auto p = m_board.at(sq);
 
@@ -360,7 +361,6 @@ struct movepick {
                     }
                 }
             } else {
-                score += m_eval.pst[sq][1];
 
                 before -= 1;
                 if (before == 0) {
