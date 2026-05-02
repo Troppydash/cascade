@@ -750,21 +750,21 @@ struct engine {
             move_count += 1;
 
             // fut prune
-            // if (!IS_LOSS(best_score)) {
-            //     int fut_value = adjusted_static_score + 300;
-            //     if (m.type() == move::NORMAL && m_board.is_capture(m)) {
-            //         fut_value += m_evaluator.pst[m.to()][m_board.heights[m.to()]];
-            //     } else if (m.type() == move::EXPAND) {
-            //         fut_value += gen.eval_expand_pushoffs(m);
-            //     } else {
-            //         fut_value = INF;
-            //     }
-            //
-            //     if (fut_value <= alpha) {
-            //         best_score = std::max(std::min(fut_value, MAX_EVAL), best_score);
-            //         continue;
-            //     }
-            // }
+            if (!IS_LOSS(best_score)) {
+                int fut_value = adjusted_static_score + 300;
+                if (m.type() == move::NORMAL && m_board.is_capture(m)) {
+                    fut_value += m_evaluator.pst[m.to()][m_board.heights[m.to()]];
+                } else if (m.type() == move::EXPAND) {
+                    fut_value += gen.eval_expand_pushoffs(m);
+                } else {
+                    fut_value = INF;
+                }
+
+                if (fut_value <= alpha) {
+                    best_score = std::max(std::min(fut_value, MAX_EVAL), best_score);
+                    continue;
+                }
+            }
 
             ss->m = m;
             m_board.make_move(m);
@@ -891,9 +891,9 @@ struct engine {
         }
 
         // static null move pruning
-        int margin = 100 * depth;
+        int margin = 200 * depth;
         if (!is_pv_node && IS_VALID(adjusted_static_score) && adjusted_static_score - margin >= beta &&
-            !IS_LOSS(beta) && depth <= 5 && !IS_WIN(adjusted_static_score)) {
+            !IS_LOSS(beta) && depth <= 8 && !IS_WIN(adjusted_static_score)) {
             return (beta + adjusted_static_score) / 2;
         }
 
