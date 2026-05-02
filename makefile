@@ -9,6 +9,10 @@ build:
 	@mkdir -p $(BUILD_DIR)
 	@cd $(BUILD_DIR) && cmake .. && make
 
+build_release:
+	@mkdir -p $(BUILD_DIR)
+	@cd $(BUILD_DIR) && cmake -DCMAKE_BUILD_TYPE=Release .. && make
+
 run:
 	@if [ -f $(BUILD_DIR)/$(BINARY_NAME) ]; then \
 		./$(BUILD_DIR)/$(BINARY_NAME); \
