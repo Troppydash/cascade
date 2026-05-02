@@ -270,7 +270,7 @@ int main(int argc, char **argv) {
         std::string beta = std::string{argv[3]};
         std::atomic<int> num = 0;
 
-        int thread_count = 14;
+        int thread_count = 20;
         std::vector<std::thread> threads;
         std::mutex res_lock;
         result res{};

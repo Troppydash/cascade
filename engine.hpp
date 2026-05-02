@@ -14,6 +14,7 @@ constexpr int SS_HEAD = 10;
 
 constexpr int INF = 32000;
 constexpr int CHECKMATE = INF - MAX_DEPTH;
+constexpr int MAX_EVAL = CHECKMATE - 10;
 constexpr int VALUE_DRAW = 0;
 constexpr int VALUE_NONE = INF + 1;
 constexpr int QDEPTH = 0;
@@ -276,7 +277,7 @@ struct evaluator {
         if (board.is_drop()) {
             total += 10;
         } else {
-            total += 30;
+            total += 20;
         }
 
         if (draw) {
@@ -348,9 +349,10 @@ struct movepick {
             int sq = m.square + m.dir * step;
             assert(sq < 64 && sq >= 0);
             if ((m_board.occ[0] | m_board.occ[1]) & (1ull << sq)) {
+                auto p = m_board.at(sq);
+
                 // shift off
                 if (step + before > limit) {
-                    auto p = m_board.at(sq);
                     if (p.side == m_board.side2move) {
                         score -= m_eval.pst[sq][p.height];
                     } else {
@@ -360,7 +362,6 @@ struct movepick {
             } else {
                 before -= 1;
                 if (before == 0) {
-                    limit = step;
                     break;
                 }
             }
@@ -678,6 +679,10 @@ struct engine {
             return evaluate(true);
         }
 
+        if (m_board.is_lost()) {
+            return MATED_IN(ss->ply);
+        }
+
         // draw check
         if (m_board.is_repetition(ss->ply)) {
             int state = m_board.get_draw_state();
@@ -743,6 +748,23 @@ struct engine {
         int move_count = 0;
         while (!(m = gen.next_move()).is_none()) {
             move_count += 1;
+
+            // fut prune
+            // if (!IS_LOSS(best_score)) {
+            //     int fut_value = adjusted_static_score + 300;
+            //     if (m.type() == move::NORMAL && m_board.is_capture(m)) {
+            //         fut_value += m_evaluator.pst[m.to()][m_board.heights[m.to()]];
+            //     } else if (m.type() == move::EXPAND) {
+            //         fut_value += gen.eval_expand_pushoffs(m);
+            //     } else {
+            //         fut_value = INF;
+            //     }
+            //
+            //     if (fut_value <= alpha) {
+            //         best_score = std::max(std::min(fut_value, MAX_EVAL), best_score);
+            //         continue;
+            //     }
+            // }
 
             ss->m = m;
             m_board.make_move(m);
@@ -815,6 +837,10 @@ struct engine {
 
         bool is_root = ss->ply == 0 && is_pv_node;
 
+        if (!is_root && m_board.is_lost()) {
+            return MATED_IN(ss->ply);
+        }
+
         // mate distance pruning
         if (!is_root) {
             alpha = std::max(alpha, MATED_IN(ss->ply));
@@ -824,9 +850,13 @@ struct engine {
         }
 
         // repetition
-        if (!is_root && m_board.is_repetition(ss->ply))
-            return VALUE_DRAW;
+        if (!is_root && m_board.is_repetition(ss->ply)) {
+            int state = m_board.get_draw_state();
+            if (state == DRAW)
+                return DRAW;
 
+            return evaluate(true);
+        }
 
         // tt lookup
         uint64_t key = m_board.get_hash();
@@ -868,8 +898,9 @@ struct engine {
         }
 
         // nmp
-        if (cut_node && !(ss - 1)->m.is_none() && adjusted_static_score >= beta && IS_VALID(unadjusted_static_score) &&
-            !IS_LOSS(beta)) {
+        int count = std::popcount(m_board.occ[m_board.side2move]);
+        if (cut_node && !(ss - 1)->m.is_none() && count >= 2 && adjusted_static_score >= beta &&
+            IS_VALID(unadjusted_static_score) && !IS_LOSS(beta)) {
             int reduction = 2 + depth / 6;
 
             int reduced_depth = std::max(0, depth - reduction);

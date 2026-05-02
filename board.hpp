@@ -483,6 +483,24 @@ struct board {
         return NONE;
     }
 
+    bool is_lost() const {
+        if (std::popcount(occ[side2move]) == 1) {
+            int idx = __builtin_ctzll(occ[side2move]);
+            if (heights[idx] == 1) {
+
+                // check if opp has height 2
+                uint64_t mask = occ[side2move^1];
+                while (mask) {
+                    int i = __builtin_ctzll(mask);
+                    mask ^= (1ull << i);
+                    if (heights[i] >= 2)
+                        return true;
+                }
+            }
+        }
+        return false;
+    }
+
     bool is_repetition(int ply) const {
         for (int i = 2; i <= ply; i += 2) {
             if (past_length - i < 0)
