@@ -448,8 +448,33 @@ struct board {
         if (occ[side2move] == 0)
             return side2move ^ 1;
 
-        if (moves >= DRAW_LENGTH)
+        if (moves >= DRAW_LENGTH) {
+            // count pieces
+            int p0 = 0;
+            int p1 = 0;
+            uint64_t mask = occ[0];
+            while (mask) {
+                int i = __builtin_ctzll(mask);
+                mask ^= (1ull << i);
+
+                p0 += heights[i];
+            }
+
+            mask = occ[1];
+            while (mask) {
+                int i = __builtin_ctzll(mask);
+                mask ^= (1ull << i);
+
+                p1 += heights[i];
+            }
+
+            if (p0 > p1)
+                return WHITE;
+            if (p0 < p1)
+                return BLACK;
+
             return DRAW;
+        }
 
         return NONE;
     }
@@ -523,15 +548,28 @@ struct board {
 
 
     void display() const {
+        auto to_string = [](int height) -> char {
+            if (height == 12) {
+                return 'C';
+            }
+            if (height == 11) {
+                return 'B';
+            }
+            if (height == 10) {
+                return 'A';
+            }
+            return '0' + height;
+        };
+
         for (int i = 0; i < SIZE * SIZE; ++i) {
             piece p = at(i);
             switch (p.side) {
                 case WHITE: {
-                    std::cout << "|" << RED << (std::to_string(p.height)) << RESET;
+                    std::cout << "|" << RED << (to_string(p.height)) << RESET;
                     break;
                 }
                 case BLACK: {
-                    std::cout << "|" << BLUE << (std::to_string(p.height)) << RESET;
+                    std::cout << "|" << BLUE << (to_string(p.height)) << RESET;
                     break;
                 }
                 case NONE: {
