@@ -279,6 +279,12 @@ struct evaluator {
             total += 30;
         }
 
+        // draw contempt
+        int dist = DRAW_LENGTH - board.moves;
+        int state = board.get_draw_state();
+        int contempt = (state == DRAW ? 0 : state == board.side2move ? 1 : -1);
+        total += contempt * dist;
+
         return total;
     }
 };
@@ -641,13 +647,11 @@ struct engine {
 
         // draw check
         if (m_board.is_repetition(ss->ply)) {
-            return VALUE_DRAW;
-            //
-            // int state = m_board.get_draw_state();
-            // if (state == DRAW)
-            //
-            // if (state == m_board.side2move)
-            //     return
+            int state = m_board.get_draw_state();
+            if (state == DRAW)
+                return DRAW;
+
+            return evaluate();
         }
 
         alpha = std::max(alpha, MATED_IN(ss->ply));

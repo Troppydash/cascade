@@ -442,6 +442,7 @@ struct board {
     uint64_t get_hash() const { return past[past_length].hash; }
 
     int get_draw_state() const {
+        // count pieces
         int p0 = 0;
         int p1 = 0;
         uint64_t mask = occ[0];
@@ -476,7 +477,6 @@ struct board {
             return side2move ^ 1;
 
         if (moves >= DRAW_LENGTH) {
-            // count pieces
             return get_draw_state();
         }
 
