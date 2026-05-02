@@ -19,4 +19,4 @@ fi
 
 echo "copying to $DEST"
 mkdir -p "$DEST"
-cp ./cmake-build-release/cascade "$DEST/cascade"
+cp ./build/cascade "$DEST/cascade"

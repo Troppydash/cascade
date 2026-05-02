@@ -47,6 +47,11 @@ std::string score_to_cp(int score) {
     return std::format("cp {}", score);
 }
 
+namespace param {
+    constexpr int EXPAND_QSEARCH_COST = 100;
+    constexpr int EXPAND_COST = 50;
+}; // namespace param
+
 struct timer {
     int64_t base;
     int64_t optimal;
@@ -245,7 +250,7 @@ struct evaluator {
 
             for (int j = 0; j < 13; ++j) {
                 int height_value = j * 20 + j * j * 3;
-                pst[i][j] = 50 + sq_value + height_value;
+                pst[i][j] = sq_value + height_value;
             }
         }
     }
@@ -326,7 +331,7 @@ struct movepick {
 
     int eval_expand_pushoffs(const move &m) const {
         assert(m.type() == move::EXPAND);
-        int score = 0;
+        int score = m_eval.pst[m.square][1] - m_eval.pst[m.square][m_board.at(m.square).height];
 
         int limit = m.edge_distance();
         int power = (int) m_board.heights[m.square] - 1;
@@ -425,7 +430,7 @@ struct movepick {
                 }
                 case GOOD_CAPTURE: {
                     move_ptr = pick_move(moves, move_ptr, moves.size(), [this](move &m) {
-                        if (m.type() == move::EXPAND && this->eval_expand_pushoffs(m) < 20) {
+                        if (m.type() == move::EXPAND && this->eval_expand_pushoffs(m) < param::EXPAND_COST) {
                             std::swap(moves[bad_moves++], m);
                             return false;
                         } else {
@@ -516,7 +521,7 @@ struct movepick {
                 }
                 case QCAPTURE: {
                     move_ptr = pick_move(moves, move_ptr, moves.size(), [this](auto &m) {
-                        return m.type() != move::EXPAND || this->eval_expand_pushoffs(m) > 50;
+                        return m.type() != move::EXPAND || this->eval_expand_pushoffs(m) > param::EXPAND_QSEARCH_COST;
                     });
                     if (move_ptr < moves.size())
                         return moves[move_ptr++];
@@ -635,8 +640,15 @@ struct engine {
         }
 
         // draw check
-        if (m_board.is_repetition(ss->ply))
+        if (m_board.is_repetition(ss->ply)) {
             return VALUE_DRAW;
+            //
+            // int state = m_board.get_draw_state();
+            // if (state == DRAW)
+            //
+            // if (state == m_board.side2move)
+            //     return
+        }
 
         alpha = std::max(alpha, MATED_IN(ss->ply));
         beta = std::min(beta, MATE_IN(ss->ply + 1));
@@ -839,8 +851,9 @@ struct engine {
         }
 
         // iir
-        if ((is_pv_node || cut_node) && depth >= 2 && tt_data.m.is_none())
+        if ((is_pv_node || cut_node) && depth >= 2 && tt_data.m.is_none()) {
             depth -= 1;
+        }
 
         // negamax
         movepick gen{tt_data.m, m_board, ss->ply, m_heuristic, m_evaluator, movepick::stage::PV};

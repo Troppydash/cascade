@@ -441,6 +441,33 @@ struct board {
 
     uint64_t get_hash() const { return past[past_length].hash; }
 
+    int get_draw_state() const {
+        int p0 = 0;
+        int p1 = 0;
+        uint64_t mask = occ[0];
+        while (mask) {
+            int i = __builtin_ctzll(mask);
+            mask ^= (1ull << i);
+
+            p0 += heights[i];
+        }
+
+        mask = occ[1];
+        while (mask) {
+            int i = __builtin_ctzll(mask);
+            mask ^= (1ull << i);
+
+            p1 += heights[i];
+        }
+
+        if (p0 > p1)
+            return WHITE;
+        if (p0 < p1)
+            return BLACK;
+
+        return DRAW;
+    }
+
     int get_state() const {
         if (moves < DROPS)
             return NONE;
@@ -450,37 +477,14 @@ struct board {
 
         if (moves >= DRAW_LENGTH) {
             // count pieces
-            int p0 = 0;
-            int p1 = 0;
-            uint64_t mask = occ[0];
-            while (mask) {
-                int i = __builtin_ctzll(mask);
-                mask ^= (1ull << i);
-
-                p0 += heights[i];
-            }
-
-            mask = occ[1];
-            while (mask) {
-                int i = __builtin_ctzll(mask);
-                mask ^= (1ull << i);
-
-                p1 += heights[i];
-            }
-
-            if (p0 > p1)
-                return WHITE;
-            if (p0 < p1)
-                return BLACK;
-
-            return DRAW;
+            return get_draw_state();
         }
 
         return NONE;
     }
 
     bool is_repetition(int ply) const {
-        for (int i = 2; true; i += 2) {
+        for (int i = 2; i <= ply; i += 2) {
             if (past_length - i < 0)
                 break;
 

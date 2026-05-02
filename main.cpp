@@ -9,6 +9,8 @@
 #include "engine.hpp"
 #include "pstream.h"
 
+// #define DEBUG
+
 inline std::vector<std::string> string_split(std::string const &input) {
     std::stringstream ss(input);
 
@@ -82,6 +84,9 @@ struct uci_wrapper {
         std::string out;
         while (true) {
             std::getline(stream.out(), out);
+#ifdef DEBUG
+            std::cout << "info: " << out << std::endl;
+#endif
             if (out.starts_with("bestmove")) {
                 auto parts = string_split(out);
                 return move::of_string(parts[1]);
@@ -187,7 +192,7 @@ struct runner {
     }
 
     std::pair<float, float> round(std::atomic<int> &num) {
-        int depth = 7;
+        int depth = 3;
         auto opening = get_opening(depth);
 
         auto game = [this, &opening, &num](int alpha_side2move) -> double {
@@ -209,6 +214,9 @@ struct runner {
             this->beta.newgame();
 
             while (board.get_state() == NONE) {
+#ifdef DEBUG
+                board.display();
+#endif
                 move m;
                 auto start = timer::now();
                 if (board.side2move == alpha_side2move) {
@@ -217,8 +225,13 @@ struct runner {
                     m = this->beta.search(clock[board.side2move], moves);
                 }
                 clock[board.side2move] -= timer::now() - start;
-                if (clock[board.side2move] < 0)
+                if (clock[board.side2move] < 0) {
+                    runner_lock.lock();
+                    std::cout << "game " << n << " result: OUT OF TIME\n";
+                    runner_lock.unlock();
+
                     return board.side2move ^ 1;
+                }
 
                 board.make_move(m);
                 moves.push_back(m);
