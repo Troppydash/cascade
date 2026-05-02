@@ -982,6 +982,21 @@ struct engine {
                     gen.skip_quiet();
                     continue;
                 }
+
+                // capture fut prune
+                bool is_capture = (m.type() == move::NORMAL && m_board.is_capture(m)) || m.type() == move::EXPAND;
+                if (is_capture && lmr_depth <= 6) {
+                    int additional = 0;
+                    if (m.type() == move::NORMAL && m_board.is_capture(m)) {
+                        additional = m_evaluator.pst[m.to()][m_board.heights[m.to()]];
+                    } else if (m.type() == move::EXPAND) {
+                        additional = gen.eval_expand_pushoffs(m);
+                    }
+
+                    if (ss->static_eval + 200 + 200 * lmr_depth + additional <= alpha) {
+                        continue;
+                    }
+                }
             }
 
             int new_depth = depth - 1;
