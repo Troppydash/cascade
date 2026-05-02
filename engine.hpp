@@ -890,8 +890,14 @@ struct engine {
             entry->set(key, NO_FLAG, VALUE_NONE, ss->ply, UNSEARCHED_DEPTH, move::none(), unadjusted_static_score);
         }
 
+        // razoring
+        if (!is_pv_node && IS_VALID(adjusted_static_score) && !IS_DECISIVE(alpha) &&
+            adjusted_static_score < alpha - 300 - 300 * depth * depth) {
+            return qsearch<false>(alpha, beta, 0, ss);
+        }
+
         // static null move pruning
-        int margin = 200 * depth;
+        int margin = 100 * depth;
         if (!is_pv_node && IS_VALID(adjusted_static_score) && adjusted_static_score - margin >= beta &&
             !IS_LOSS(beta) && depth <= 8 && !IS_WIN(adjusted_static_score)) {
             return (beta + adjusted_static_score) / 2;
