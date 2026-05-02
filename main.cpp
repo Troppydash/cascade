@@ -40,7 +40,9 @@ struct uci {
                 tt.reset();
                 std::cout << "ok\n";
             } else if (command == "go") {
-                int64_t time = std::stoll(parts[1]);
+                int64_t time = 10000000000000;
+                if (parts.size() >= 2)
+                    time = std::stoll(parts[1]);
 
                 std::vector<move> moves{};
                 for (int i = 2; i < parts.size(); ++i)
@@ -243,10 +245,10 @@ struct runner {
                 std::cout << "game " << n << " result: DRAW\n";
                 result = 0;
             } else if (board.get_state() == alpha_side2move) {
-                std::cout << "game " << n << " result: ALPHA WINS\n";
+                std::cout << "game " << n << RED << " result: ALPHA WINS\n" << RESET;
                 result = 1.0;
             } else {
-                std::cout << "game " << n << " result: BETA WINS\n";
+                std::cout << "game " << n << BLUE << " result: BETA WINS\n" << RESET;
                 result = -1.0;
             }
             runner_lock.unlock();
@@ -255,7 +257,9 @@ struct runner {
             return result;
         };
 
-        return {game(0), game(1)};
+        std::uniform_int_distribution<int> dist{0, 1};
+        int i = dist(gen);
+        return {game(i), game(i ^ 1)};
     }
 };
 

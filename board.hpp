@@ -495,6 +495,11 @@ struct board {
         return false;
     }
 
+    bool is_capture(const move &m) const {
+        assert(m.type() == move::NORMAL);
+        return at(m.to()).side == (side2move ^ 1);
+    }
+
     piece at(int index) const {
         assert(index >= 0 && index < 64);
         if (occ[0] & (1ull << index))
@@ -613,13 +618,14 @@ struct movegen {
     }
 
     std::vector<move> get_normals() {
+        constexpr std::array<int, 4> dirs{move::UP, move::DOWN, move::LEFT, move::RIGHT};
+
         uint64_t occ = m_board.occ[m_board.side2move];
         std::vector<move> moves{};
         while (occ) {
             int idx = __builtin_ctzll(occ);
             occ ^= (1ull << idx);
 
-            constexpr std::array<int, 4> dirs{move::UP, move::DOWN, move::LEFT, move::RIGHT};
             for (int dir: dirs) {
                 if (move::valid_normal(idx, dir)) {
                     if (!(m_board.occ[m_board.side2move ^ 1] & (1ull << (idx + dir))) ||
@@ -633,6 +639,8 @@ struct movegen {
 
 
     std::vector<move> get_expands() {
+        constexpr std::array<int, 4> dirs{move::UP, move::DOWN, move::LEFT, move::RIGHT};
+
         std::vector<move> moves{};
         uint64_t occ = m_board.occ[m_board.side2move];
         while (occ) {
@@ -643,7 +651,6 @@ struct movegen {
                 continue;
             }
 
-            constexpr std::array<int, 4> dirs{move::UP, move::DOWN, move::LEFT, move::RIGHT};
             for (int dir: dirs) {
                 moves.push_back(move::make_expand(idx, dir));
             }
@@ -664,6 +671,8 @@ struct movegen {
     }
 
     std::vector<move> get_captures() {
+        constexpr std::array<int, 4> dirs{move::UP, move::DOWN, move::LEFT, move::RIGHT};
+
         // expands
         uint64_t occ = m_board.occ[m_board.side2move];
         std::vector<move> moves{};
@@ -675,23 +684,23 @@ struct movegen {
                 continue;
             }
 
-            constexpr std::array<int, 4> dirs{move::UP, move::DOWN, move::LEFT, move::RIGHT};
             for (int dir: dirs) {
                 moves.push_back(move::make_expand(idx, dir));
             }
         }
 
-        // captures
+        // captures/stacks
         occ = m_board.occ[m_board.side2move];
         while (occ) {
             int idx = __builtin_ctzll(occ);
             occ ^= (1ull << idx);
 
-            constexpr std::array<int, 4> dirs{move::UP, move::DOWN, move::LEFT, move::RIGHT};
             for (int dir: dirs) {
                 if (move::valid_normal(idx, dir)) {
-                    if ((m_board.occ[m_board.side2move ^ 1] & (1ull << (idx + dir))) &&
-                        m_board.heights[idx] >= m_board.heights[idx + dir])
+                    bool is_capture = (m_board.occ[m_board.side2move ^ 1] & (1ull << (idx + dir))) &&
+                                      m_board.heights[idx] >= m_board.heights[idx + dir];
+                    bool is_stack = m_board.occ[m_board.side2move] & (1ull << (idx + dir));
+                    if (is_capture || is_stack)
                         moves.push_back(move::make_normal(idx, dir));
                 }
             }
@@ -701,6 +710,8 @@ struct movegen {
     }
 
     std::vector<move> get_quiets() {
+        constexpr std::array<int, 4> dirs{move::UP, move::DOWN, move::LEFT, move::RIGHT};
+
         // non-captures
         uint64_t occ = m_board.occ[m_board.side2move];
         std::vector<move> moves{};
@@ -708,10 +719,9 @@ struct movegen {
             int idx = __builtin_ctzll(occ);
             occ ^= (1ull << idx);
 
-            constexpr std::array<int, 4> dirs{move::UP, move::DOWN, move::LEFT, move::RIGHT};
             for (int dir: dirs) {
                 if (move::valid_normal(idx, dir)) {
-                    if (!(m_board.occ[m_board.side2move ^ 1] & (1ull << (idx + dir))))
+                    if (!((m_board.occ[0] | m_board.occ[1]) & (1ull << (idx + dir))))
                         moves.push_back(move::make_normal(idx, dir));
                 }
             }

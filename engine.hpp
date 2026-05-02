@@ -217,16 +217,16 @@ struct heuristics {
     history_entry<int, 20000> drop_history[13][64];
     history_entry<int, 20000> main_history[64][64];
     history_entry<int, 20000> capture_history[13][64];
+    history_entry<int, 20000> stack_history[13][64];
     history_entry<int, 20000> expand_history[13][64][4];
 
     std::array<move, 2> killers[MAX_DEPTH];
-
 
     explicit heuristics() {
         // set lmr
         for (int depth = 1; depth < 64; ++depth)
             for (int move = 1; move < 64; ++move)
-                lmr[depth][move] = std::floor(0.99 + std::log(depth) * std::log(move) / 2.0);
+                lmr[depth][move] = std::floor(0.99 + std::log(depth) * std::log(move) / 3.14);
 
         for (auto &m: killers)
             m[0] = m[1] = move::none();
@@ -235,7 +235,7 @@ struct heuristics {
     [[nodiscard]] int get_lmr(int depth, int move) const { return lmr[std::min(63, depth)][std::min(63, move)]; }
 };
 
-
+// TODO: make this inc
 struct evaluator {
     // note that 100 is 1 piece
     int pst[64][13];
@@ -246,16 +246,16 @@ struct evaluator {
             int row = i / 8;
             int col = i % 8;
             int sq = 3 - std::abs(row - 3) + 3 - std::abs(col - 3);
-            int sq_value = sq * 10;
+            int sq_value = sq * 2;
 
             for (int j = 0; j < 13; ++j) {
-                int height_value = j * 20 + j * j * 3;
+                int height_value = j * 100;
                 pst[i][j] = sq_value + height_value;
             }
         }
     }
 
-    int evaluate(const board &board) {
+    int evaluate(const board &board, bool draw) {
         assert(board.get_state() == NONE);
 
         int total = 0;
@@ -279,11 +279,13 @@ struct evaluator {
             total += 30;
         }
 
-        // draw contempt
-        int dist = DRAW_LENGTH - board.moves;
-        int state = board.get_draw_state();
-        int contempt = (state == DRAW ? 0 : state == board.side2move ? 1 : -1);
-        total += contempt * dist;
+        if (draw) {
+            // draw contempt
+            int dist = board.moves;
+            int state = board.get_draw_state();
+            int contempt = (state == DRAW ? 0 : state == board.side2move ? 1 : -1);
+            total += contempt * dist;
+        }
 
         return total;
     }
@@ -418,13 +420,24 @@ struct movepick {
                     for (int i = 0; i < moves.size(); ++i) {
                         auto &m = moves[i];
 
+                        if (m == m_pv) {
+                            std::swap(m, moves.back());
+                            moves.pop_back();
+                            i--;
+                            continue;
+                        }
+
                         if (m.type() == move::NORMAL) {
-                            m.score = m_heur.capture_history[m_board.heights[m.square]][m.to()].get_value() -
-                                      m_board.heights[m.square] * 2;
+                            if (m_board.is_capture(m)) {
+                                m.score = m_heur.capture_history[m_board.heights[m.square]][m.to()].get_value() -
+                                          m_board.heights[m.square] * 100;
+                            } else {
+                                m.score = m_heur.stack_history[m_board.heights[m.square]][m.to()].get_value();
+                            }
                         } else {
                             m.score = m_heur.expand_history[m_board.heights[m.square]][m.square][m.get_dir()]
                                               .get_value() -
-                                      m_board.heights[m.square] * 2;
+                                      m_board.heights[m.square] * 100;
                         }
                     }
 
@@ -459,6 +472,13 @@ struct movepick {
                     // score moves
                     for (int i = move_ptr; i < moves.size(); ++i) {
                         auto &m = moves[i];
+
+                        if (m == m_pv) {
+                            std::swap(m, moves.back());
+                            moves.pop_back();
+                            i--;
+                            continue;
+                        }
 
                         m.score = m_heur.main_history[m.square][m.to()].get_value();
 
@@ -510,13 +530,24 @@ struct movepick {
                     for (int i = 0; i < moves.size(); ++i) {
                         auto &m = moves[i];
 
+                        if (m == m_pv) {
+                            std::swap(m, moves.back());
+                            moves.pop_back();
+                            i--;
+                            continue;
+                        }
+
                         if (m.type() == move::NORMAL) {
-                            m.score = m_heur.capture_history[m_board.heights[m.square]][m.to()].get_value() -
-                                      m_board.heights[m.square] * 2;
+                            if (m_board.is_capture(m)) {
+                                m.score = m_heur.capture_history[m_board.heights[m.square]][m.to()].get_value() -
+                                          m_board.heights[m.square] * 100;
+                            } else {
+                                m.score = m_heur.stack_history[m_board.heights[m.square]][m.to()].get_value() - 10000;
+                            }
                         } else {
                             m.score = m_heur.expand_history[m_board.heights[m.square]][m.square][m.get_dir()]
                                               .get_value() -
-                                      m_board.heights[m.square] * 2;
+                                      m_board.heights[m.square] * 100;
                         }
                     }
 
@@ -611,12 +642,14 @@ struct engine {
     int sel_depth;
 
     tt *m_tt;
-    heuristics m_heuristic;
+    std::unique_ptr<heuristics> m_heuristic;
     evaluator m_evaluator;
 
-    explicit engine(const board &board, tt *tt) : m_board(board), m_tt(tt), m_heuristic(), m_evaluator() {}
+    explicit engine(const board &board, tt *tt) : m_board(board), m_tt(tt), m_evaluator() {
+        m_heuristic = std::make_unique<heuristics>();
+    }
 
-    int evaluate() { return m_evaluator.evaluate(m_board); }
+    int evaluate(bool draw = false) { return m_evaluator.evaluate(m_board, draw); }
 
     template<bool is_pv_node>
     int qsearch(int alpha, int beta, int depth, search_stack *ss) {
@@ -642,7 +675,7 @@ struct engine {
         }
 
         if (ss->ply >= MAX_DEPTH - 5) {
-            return evaluate();
+            return evaluate(true);
         }
 
         // draw check
@@ -651,7 +684,7 @@ struct engine {
             if (state == DRAW)
                 return DRAW;
 
-            return evaluate();
+            return evaluate(true);
         }
 
         alpha = std::max(alpha, MATED_IN(ss->ply));
@@ -706,7 +739,7 @@ struct engine {
         int score;
         move best_move = move::none();
         move m = move::none();
-        movepick gen{tt_data.m, m_board, ss->ply, m_heuristic, m_evaluator, movepick::stage::QPV};
+        movepick gen{tt_data.m, m_board, ss->ply, *m_heuristic, m_evaluator, movepick::stage::QPV};
         int move_count = 0;
         while (!(m = gen.next_move()).is_none()) {
             move_count += 1;
@@ -773,7 +806,7 @@ struct engine {
         }
 
         if (ss->ply >= MAX_DEPTH - 5)
-            return evaluate();
+            return evaluate(true);
 
 
         if (depth <= 0)
@@ -860,7 +893,7 @@ struct engine {
         }
 
         // negamax
-        movepick gen{tt_data.m, m_board, ss->ply, m_heuristic, m_evaluator, movepick::stage::PV};
+        movepick gen{tt_data.m, m_board, ss->ply, *m_heuristic, m_evaluator, movepick::stage::PV};
         move m;
         int move_count = 0;
         int score;
@@ -879,7 +912,7 @@ struct engine {
 
 
             if (depth >= 2 && move_count > 1 + 2 * is_root) {
-                int reduction = m_heuristic.get_lmr(depth, move_count);
+                int reduction = m_heuristic->get_lmr(depth, move_count);
 
                 if (cut_node)
                     reduction += 2;
@@ -949,35 +982,39 @@ struct engine {
 
             if (m_board.is_drop()) {
                 assert(best_move.type() == move::PLACE);
-                m_heuristic.drop_history[m_board.heights[best_move.square]][best_move.square].add_bonus(bonus);
+                m_heuristic->drop_history[m_board.heights[best_move.square]][best_move.square].add_bonus(bonus);
                 for (auto &m: drop_moves)
-                    m_heuristic.drop_history[m_board.heights[m.square]][m.square].add_bonus(-malus);
+                    m_heuristic->drop_history[m_board.heights[m.square]][m.square].add_bonus(-malus);
             } else {
                 assert(best_move.type() != move::PLACE);
                 switch (best_move.type()) {
                     case move::NORMAL: {
                         if (m_board.at(best_move.to()).side != m_board.side2move) {
-                            m_heuristic.capture_history[m_board.heights[best_move.square]][best_move.to()].add_bonus(
-                                    bonus);
+                            if (m_board.is_capture(best_move))
+                                m_heuristic->capture_history[m_board.heights[best_move.square]][best_move.to()]
+                                        .add_bonus(bonus);
+                            else
+                                m_heuristic->stack_history[m_board.heights[best_move.square]][best_move.to()].add_bonus(
+                                        bonus);
                         } else {
                             // quiet cutoff
-                            m_heuristic.main_history[best_move.square][best_move.to()].add_bonus(bonus);
+                            m_heuristic->main_history[best_move.square][best_move.to()].add_bonus(bonus);
 
-                            if (m_heuristic.killers[ss->ply][0] == m) {
-                                m_heuristic.killers[ss->ply][1] = m_heuristic.killers[ss->ply][0];
+                            if (m_heuristic->killers[ss->ply][0] == m) {
+                                m_heuristic->killers[ss->ply][1] = m_heuristic->killers[ss->ply][0];
                             }
-                            m_heuristic.killers[ss->ply][0] = m;
+                            m_heuristic->killers[ss->ply][0] = m;
 
                             for (auto &m: quiet_moves)
-                                m_heuristic.main_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
+                                m_heuristic->main_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
                         }
 
                         break;
                     }
                     case move::EXPAND: {
                         m_heuristic
-                                .expand_history[m_board.heights[best_move.square]][best_move.square]
-                                               [best_move.get_dir()]
+                                ->expand_history[m_board.heights[best_move.square]][best_move.square]
+                                                [best_move.get_dir()]
                                 .add_bonus(bonus);
 
                         break;
@@ -990,11 +1027,15 @@ struct engine {
                 }
 
                 // always penaltize capture/expands
-                for (auto &m: capture_moves)
-                    m_heuristic.capture_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
+                for (auto &m: capture_moves) {
+                    if (m_board.is_capture(m))
+                        m_heuristic->capture_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
+                    else
+                        m_heuristic->stack_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
+                }
 
                 for (auto &m: expand_moves)
-                    m_heuristic.expand_history[m_board.heights[m.square]][m.square][m.get_dir()].add_bonus(-malus);
+                    m_heuristic->expand_history[m_board.heights[m.square]][m.square][m.get_dir()].add_bonus(-malus);
             }
         }
 
