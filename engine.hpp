@@ -686,6 +686,9 @@ struct engine {
             if (state == DRAW)
                 return VALUE_DRAW;
 
+            if (state == m_board.side2move)
+                return INF - ss->ply;
+
             return -INF + ss->ply;
         }
 
@@ -837,6 +840,9 @@ struct engine {
         if (state != NONE) {
             if (state == DRAW)
                 return VALUE_DRAW;
+
+            if (state == m_board.side2move)
+                return INF - ss->ply;
 
             return -INF + ss->ply;
         }
@@ -1020,6 +1026,9 @@ struct engine {
                 int reduced_depth = std::clamp(new_depth - reduction, 1, new_depth + 1);
                 score = -negamax<false>(-(alpha + 1), -alpha, reduced_depth, ss + 1, true);
                 if (score > alpha && reduced_depth < new_depth) {
+                    // new_depth += score > best_score + 50 + new_depth * 2;
+                    // new_depth -= score < best_score + 10;
+                    //
                     if (reduced_depth < new_depth)
                         score = -negamax<false>(-(alpha + 1), -alpha, new_depth, ss + 1, !cut_node);
                 }
