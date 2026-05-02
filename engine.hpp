@@ -793,7 +793,7 @@ struct engine {
             }
 
             if (!IS_LOSS(best_score)) {
-                if (move_count >= 5)
+                if (move_count >= 4)
                     break;
             }
         }
@@ -873,6 +873,9 @@ struct engine {
             tt_data.depth >= depth + (tt_data.score >= beta))
             return tt_data.score;
 
+        bool tt_noisy = !tt_data.m.is_none() && (tt_data.m.type() == move::EXPAND ||
+                                                 tt_data.m.type() == move::EXPAND && m_board.is_capture(tt_data.m));
+
         int unadjusted_static_score = VALUE_NONE;
         int adjusted_static_score = VALUE_NONE;
         if (tt_data.hit) {
@@ -912,7 +915,7 @@ struct engine {
         int count = std::popcount(m_board.occ[m_board.side2move]);
         if (cut_node && !(ss - 1)->m.is_none() && count >= 2 && adjusted_static_score >= beta &&
             IS_VALID(unadjusted_static_score) && !IS_LOSS(beta)) {
-            int reduction = 2 + depth / 6;
+            int reduction = 3 + depth / 6;
 
             int reduced_depth = std::max(0, depth - reduction);
 
@@ -962,6 +965,7 @@ struct engine {
                 reduction -= is_pv_node;
 
                 reduction -= m.score / 10000;
+
 
                 int reduced_depth = std::clamp(new_depth - reduction, 1, new_depth + 1);
                 score = -negamax<false>(-(alpha + 1), -alpha, reduced_depth, ss + 1, true);
