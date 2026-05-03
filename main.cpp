@@ -52,8 +52,11 @@ struct uci {
                 // board.display();
 
                 int true_time = time - 20;
-                int opt_time = std::max(10, true_time / 50);
-                int max_time = std::max(1, true_time * 70 / 100 - 10);
+                int opt_time = std::max(1, true_time / 50);
+                int max_time = std::max(1, true_time * 70 / 100);
+                if (true_time < 2000) {
+                    max_time = std::max(1, true_time * 20 / 100);
+                }
 
                 engine eng{board, &table};
                 auto result = eng.search(opt_time, max_time);

@@ -286,7 +286,7 @@ struct heuristics {
 };
 
 constexpr std::array<int, 13> HEIGHT_OFFSET = {0, -10, 0, 10, 30, 40, 30, 10, 0, -40, -50, -60, -70};
-constexpr std::array<int, 13> SQUARE_HEIGHT_SCALER = {0, -20, -20, 0, 10, 20, 40, 50, 70, 70, 70, 70, 70};
+constexpr std::array<int, 13> SQUARE_HEIGHT_SCALER = {0, -20, -20, 0, 20, 40, 60, 60, 70, 70, 70, 70, 70};
 
 // clang-format off
 constexpr std::array<int, 64> SQUARE_VALUE = {
