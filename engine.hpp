@@ -224,6 +224,7 @@ struct heuristics {
     int lmr[64][64];
 
     history_entry<int, 20000> drop_history[65][64];
+    history_entry<int, 20000> drop_history_square[64];
     history_entry<int, 20000> main_history[64][64];
     history_entry<int, 20000> capture_history[13][64];
     history_entry<int, 20000> stack_history[13][64];
@@ -471,6 +472,11 @@ struct movepick {
 
                     int prev_square = m_prev_move.is_none() ? 64 : m_prev_move.square;
 
+                    move counter_move = move::none();
+                    if (!m_prev_move.is_none()) {
+                        counter_move = m_heur.counter_move[0][m_prev_move.square];
+                    }
+
                     for (int i = 0; i < moves.size(); ++i) {
                         auto &m = moves[i];
 
@@ -491,7 +497,13 @@ struct movepick {
                             continue;
                         }
 
-                        m.score = m_heur.drop_history[prev_square][m.square].get_value();
+                        m.score = m_heur.drop_history[prev_square][m.square].get_value() +
+                                  m_heur.drop_history_square[m.square].get_value();
+
+                        if (m == counter_move)
+                            m.score += 10000;
+
+                        m.score = std::clamp(m.score, -30000, 30000);
                     }
 
                     sort_moves(moves, 0, moves.size());
@@ -1254,15 +1266,25 @@ struct engine {
 
             if (m_board.is_drop()) {
                 assert(best_move.type() == move::PLACE);
+
+                // history
                 int prev_square = (ss - 1)->m.is_none() ? 64 : (ss - 1)->m.square;
                 m_heuristic->drop_history[prev_square][best_move.square].add_bonus(bonus);
-                for (auto &m: drop_moves)
+                m_heuristic->drop_history_square[best_move.square].add_bonus(bonus);
+                for (auto &m: drop_moves) {
                     m_heuristic->drop_history[prev_square][m.square].add_bonus(-malus);
+                    m_heuristic->drop_history_square[m.square].add_bonus(-malus);
+                }
 
                 if (m_heuristic->killers[ss->ply][0] == m) {
                     m_heuristic->killers[ss->ply][1] = m_heuristic->killers[ss->ply][0];
                 }
                 m_heuristic->killers[ss->ply][0] = m;
+
+                auto prev_move = (ss - 1)->m;
+                if (!prev_move.is_none()) {
+                    m_heuristic->counter_move[0][prev_move.square] = best_move;
+                }
             } else {
                 assert(best_move.type() != move::PLACE);
                 switch (best_move.type()) {
