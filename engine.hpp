@@ -218,17 +218,19 @@ struct history_entry {
 };
 
 constexpr int LOW_PLY = 3;
+constexpr int MASK_SIZE = 1 << 10;
 
 struct heuristics {
     int lmr[64][64];
 
-    history_entry<int, 20000> drop_history[13][64];
+    history_entry<int, 20000> drop_history[65][64];
     history_entry<int, 20000> main_history[64][64];
     history_entry<int, 20000> capture_history[13][64];
     history_entry<int, 20000> stack_history[13][64];
     history_entry<int, 20000> expand_history[13][64][4];
 
     history_entry<int, 20000> low_ply_history[LOW_PLY][64][64];
+    history_entry<int, 20000> mask_history[MASK_SIZE][64][64];
 
     move counter_move[13][64];
 
@@ -250,22 +252,33 @@ struct heuristics {
 
     [[nodiscard]] int get_lmr(int depth, int move) const { return lmr[std::min(63, depth)][std::min(63, move)]; }
 
-    // uint64_t get_height_keys(const board &board) {
-    //     uint64_t key = 0;
-    //
-    //     // WHITE
-    //     auto zob = zobrist::get();
-    //     uint64_t mask = board.occ[0];
-    //     while (mask) {
-    //         int i = __builtin_ctzll(mask);
-    //         mask ^= (1ull << i);
-    //
-    //         if (board.heights[i] > 2) {
-    //             key ^= zob.pst[board.heights[i]]
-    //         }
-    //     }
-    //
-    // }
+    int get_mask(const board &board) const {
+        uint64_t key = 0;
+        int min_height = 4;
+
+        auto &zob = zobrist::get();
+        uint64_t mask = board.occ[0];
+        while (mask) {
+            int i = __builtin_ctzll(mask);
+            mask ^= (1ull << i);
+
+            if (board.heights[i] >= min_height) {
+                key ^= zob.pst[board.heights[i]][i][0];
+            }
+        }
+
+        mask = board.occ[1];
+        while (mask) {
+            int i = __builtin_ctzll(mask);
+            mask ^= (1ull << i);
+
+            if (board.heights[i] >= min_height) {
+                key ^= zob.pst[board.heights[i]][i][1];
+            }
+        }
+
+        return key & (MASK_SIZE - 1);
+    }
 };
 
 constexpr std::array<int, 13> HEIGHT_OFFSET = {0, -10, 0, 10, 30, 40, 30, 10, 0, -40, -50, -60, -70};
@@ -336,9 +349,11 @@ struct evaluator {
                     nearby(board.occ_with_height(board.side2move ^ 1, 1, 2));
         total -= pairs * 20;
 
-        // drop tempo
         if (board.is_drop()) {
-            total += 10;
+            if (board.moves + 1 != DROPS)
+                total -= 200;
+            else
+                total += 20;
         } else {
             total += 20;
         }
@@ -454,9 +469,20 @@ struct movepick {
                     moves = gen.get_drops();
                     move_ptr = 0;
 
+                    int prev_square = m_prev_move.is_none() ? 64 : m_prev_move.square;
+
                     for (int i = 0; i < moves.size(); ++i) {
                         auto &m = moves[i];
-                        m.score = m_heur.drop_history[m_board.heights[m.square]][m.square].get_value();
+
+                        if (m == m_pv) {
+                            std::swap(m, moves.back());
+                            moves.pop_back();
+                            i--;
+                            continue;
+                        }
+
+                        // also killer moves / countermove? using drop_history
+                        m.score = m_heur.drop_history[prev_square][m.square].get_value();
                     }
 
                     sort_moves(moves, 0, moves.size());
@@ -546,6 +572,8 @@ struct movepick {
                             counter_move = m_heur.counter_move[m_board.heights[m_prev_move.to()]][m_prev_move.to()];
                         }
 
+                        int mask = m_heur.get_mask(m_board);
+
                         // score moves
                         for (int i = move_ptr; i < moves.size(); ++i) {
                             auto &m = moves[i];
@@ -567,6 +595,8 @@ struct movepick {
                             }
 
                             m.score = m_heur.main_history[m.square][m.to()].get_value();
+                            if (mask != 0)
+                                m.score += m_heur.mask_history[mask][m.square][m.to()].get_value();
                             if (m_ply < LOW_PLY)
                                 m.score +=
                                         2 * m_heur.low_ply_history[m_ply][m.square][m.to()].get_value() / (1 + m_ply);
@@ -1218,9 +1248,10 @@ struct engine {
 
             if (m_board.is_drop()) {
                 assert(best_move.type() == move::PLACE);
-                m_heuristic->drop_history[m_board.heights[best_move.square]][best_move.square].add_bonus(bonus);
+                int prev_square = (ss - 1)->m.is_none() ? 64 : (ss - 1)->m.square;
+                m_heuristic->drop_history[prev_square][best_move.square].add_bonus(bonus);
                 for (auto &m: drop_moves)
-                    m_heuristic->drop_history[m_board.heights[m.square]][m.square].add_bonus(-malus);
+                    m_heuristic->drop_history[prev_square][m.square].add_bonus(-malus);
             } else {
                 assert(best_move.type() != move::PLACE);
                 switch (best_move.type()) {
@@ -1233,8 +1264,11 @@ struct engine {
                                 m_heuristic->stack_history[m_board.heights[best_move.square]][best_move.to()].add_bonus(
                                         bonus);
                         } else {
+                            int mask = m_heuristic->get_mask(m_board);
                             // quiet cutoff
                             m_heuristic->main_history[best_move.square][best_move.to()].add_bonus(bonus);
+                            if (mask != 0)
+                                m_heuristic->mask_history[mask][best_move.square][best_move.to()].add_bonus(bonus);
                             if (ss->ply < LOW_PLY)
                                 m_heuristic->low_ply_history[ss->ply][best_move.square][best_move.to()].add_bonus(
                                         bonus);
@@ -1251,6 +1285,8 @@ struct engine {
 
                             for (auto &m: quiet_moves) {
                                 m_heuristic->main_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
+                                if (mask != 0)
+                                    m_heuristic->mask_history[mask][m.square][m.to()].add_bonus(-malus);
                                 if (ss->ply < LOW_PLY)
                                     m_heuristic->low_ply_history[ss->ply][m.square][m.to()].add_bonus(-malus);
                             }

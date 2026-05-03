@@ -49,6 +49,7 @@ struct uci {
                     moves.push_back(move::of_string(parts[i]));
 
                 auto board = movegen::create_board(moves);
+                // board.display();
                 engine eng{board, &table};
                 auto result = eng.search(100, 200);
                 std::cout << "bestmove " << result.m.str() << std::endl;
