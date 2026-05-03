@@ -217,6 +217,8 @@ struct history_entry {
     }
 };
 
+constexpr int LOW_PLY = 3;
+
 struct heuristics {
     int lmr[64][64];
 
@@ -225,6 +227,9 @@ struct heuristics {
     history_entry<int, 20000> capture_history[13][64];
     history_entry<int, 20000> stack_history[13][64];
     history_entry<int, 20000> expand_history[13][64][4];
+
+    history_entry<int, 20000> low_ply_history[LOW_PLY][64][64];
+
     move counter_move[13][64];
 
     std::array<move, 2> killers[MAX_DEPTH];
@@ -518,6 +523,9 @@ struct movepick {
                             }
 
                             m.score = m_heur.main_history[m.square][m.to()].get_value();
+                            if (m_ply < LOW_PLY)
+                                m.score +=
+                                        2 * m_heur.low_ply_history[m_ply][m.square][m.to()].get_value() / (1 + m_ply);
 
                             if (m == counter_move)
                                 m.score += 20000;
@@ -1146,6 +1154,9 @@ struct engine {
                         } else {
                             // quiet cutoff
                             m_heuristic->main_history[best_move.square][best_move.to()].add_bonus(bonus);
+                            if (ss->ply < LOW_PLY)
+                                m_heuristic->low_ply_history[ss->ply][best_move.square][best_move.to()].add_bonus(
+                                        bonus);
 
                             if (m_heuristic->killers[ss->ply][0] == m) {
                                 m_heuristic->killers[ss->ply][1] = m_heuristic->killers[ss->ply][0];
@@ -1157,8 +1168,11 @@ struct engine {
                                 m_heuristic->counter_move[m_board.heights[prev_move.to()]][prev_move.to()] = best_move;
                             }
 
-                            for (auto &m: quiet_moves)
+                            for (auto &m: quiet_moves) {
                                 m_heuristic->main_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
+                                if (ss->ply < LOW_PLY)
+                                    m_heuristic->low_ply_history[ss->ply][m.square][m.to()].add_bonus(-malus);
+                            }
                         }
 
                         break;
