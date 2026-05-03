@@ -40,9 +40,9 @@ struct uci {
                 table.reset();
                 std::cout << "ok\n";
             } else if (command == "go") {
-                int64_t time = 10000000000000;
+                int time = 1000000000;
                 if (parts.size() >= 2)
-                    time = std::stoll(parts[1]);
+                    time = std::stoi(parts[1]);
 
                 std::vector<move> moves{};
                 for (int i = 2; i < parts.size(); ++i)
@@ -50,8 +50,13 @@ struct uci {
 
                 auto board = movegen::create_board(moves);
                 // board.display();
+
+                int true_time = time - 10;
+                int opt_time = std::max(100, true_time / 50);
+                int max_time = std::max(10, true_time * 70 / 100 - 10);
+
                 engine eng{board, &table};
-                auto result = eng.search(100, 200);
+                auto result = eng.search(opt_time, max_time);
                 std::cout << "bestmove " << result.m.str() << std::endl;
             } else {
                 std::cout << "Unknown command '" << command << "'\n";
@@ -224,7 +229,7 @@ struct runner {
                 std::cout << " BETA vs ALPHA\n";
             runner_lock.unlock();
 
-            std::array<int64_t, 2> clock{180 * 1000, 180 * 1000};
+            std::array<int64_t, 2> clock{60 * 1000, 60 * 1000};
 
             std::vector<move> moves{opening.begin(), opening.end()};
             board board = movegen::create_board(moves);
@@ -246,7 +251,8 @@ struct runner {
                 clock[board.side2move] -= timer::now() - start;
                 if (clock[board.side2move] < 0) {
                     runner_lock.lock();
-                    std::cout << "game " << n << " result: OUT OF TIME\n";
+                    std::cout << "game " << n << " result: " << (board.side2move == alpha_side2move ? "ALPHA" : "BETA")
+                              << " OUT OF TIME\n";
                     runner_lock.unlock();
 
                     return board.side2move ^ 1;

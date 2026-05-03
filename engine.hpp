@@ -286,7 +286,7 @@ struct heuristics {
 };
 
 constexpr std::array<int, 13> HEIGHT_OFFSET = {0, -10, 0, 10, 30, 40, 30, 10, 0, -40, -50, -60, -70};
-constexpr std::array<int, 13> SQUARE_HEIGHT_SCALER = {0, -10, -10, 0, 10, 20, 40, 50, 70, 70, 70, 70, 70};
+constexpr std::array<int, 13> SQUARE_HEIGHT_SCALER = {0, -20, -20, 0, 10, 20, 40, 50, 70, 70, 70, 70, 70};
 
 // clang-format off
 constexpr std::array<int, 64> SQUARE_VALUE = {
@@ -942,7 +942,7 @@ struct engine {
 
             // fut prune
             if (!IS_LOSS(best_score)) {
-                int fut_value = adjusted_static_score + 300;
+                int fut_value = adjusted_static_score + 200;
                 if (m.type() == move::NORMAL && m_board.is_capture(m)) {
                     fut_value += m_evaluator.pst[m.to()][m_board.heights[m.to()]];
                 } else if (m.type() == move::EXPAND) {
