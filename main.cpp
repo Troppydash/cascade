@@ -51,9 +51,9 @@ struct uci {
                 auto board = movegen::create_board(moves);
                 // board.display();
 
-                int true_time = time - 10;
-                int opt_time = std::max(100, true_time / 50);
-                int max_time = std::max(10, true_time * 70 / 100 - 10);
+                int true_time = time - 20;
+                int opt_time = std::max(10, true_time / 50);
+                int max_time = std::max(1, true_time * 70 / 100 - 10);
 
                 engine eng{board, &table};
                 auto result = eng.search(opt_time, max_time);
@@ -229,7 +229,7 @@ struct runner {
                 std::cout << " BETA vs ALPHA\n";
             runner_lock.unlock();
 
-            std::array<int64_t, 2> clock{60 * 1000, 60 * 1000};
+            std::array<int64_t, 2> clock{30 * 1000, 30 * 1000};
 
             std::vector<move> moves{opening.begin(), opening.end()};
             board board = movegen::create_board(moves);
