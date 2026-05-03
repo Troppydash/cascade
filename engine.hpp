@@ -481,7 +481,16 @@ struct movepick {
                             continue;
                         }
 
-                        // also killer moves / countermove? using drop_history
+                        if (m_heur.killers[m_ply][0] == m) {
+                            m.score = 32000;
+                            continue;
+                        }
+
+                        if (m_heur.killers[m_ply][1] == m) {
+                            m.score = 31000;
+                            continue;
+                        }
+
                         m.score = m_heur.drop_history[prev_square][m.square].get_value();
                     }
 
@@ -1215,9 +1224,6 @@ struct engine {
                         break;
 
                     alpha = score;
-
-                    // if (depth > 4 && depth < 10 && !IS_LOSS(best_score))
-                    //     depth -= 1;
                 }
             }
 
@@ -1252,6 +1258,11 @@ struct engine {
                 m_heuristic->drop_history[prev_square][best_move.square].add_bonus(bonus);
                 for (auto &m: drop_moves)
                     m_heuristic->drop_history[prev_square][m.square].add_bonus(-malus);
+
+                if (m_heuristic->killers[ss->ply][0] == m) {
+                    m_heuristic->killers[ss->ply][1] = m_heuristic->killers[ss->ply][0];
+                }
+                m_heuristic->killers[ss->ply][0] = m;
             } else {
                 assert(best_move.type() != move::PLACE);
                 switch (best_move.type()) {
