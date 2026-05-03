@@ -257,7 +257,7 @@ struct evaluator {
     int pst[64][13];
 
     explicit evaluator() {
-        const std::array<int, 13> heights = {0, -10, 0, 10, 20, 40, 30, -40, -50, -70, -70, -80, -100};
+        const std::array<int, 13> heights = {0, -10, 0, 10, 20, 40, 30, 20, 0, -40, -50, -60, -70};
 
         // create pst
         for (int i = 0; i < 64; ++i) {
