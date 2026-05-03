@@ -790,6 +790,7 @@ struct search_stack {
     int static_eval;
     int pv_length;
     bool tt_pv;
+    move excluded;
     std::array<move, MAX_DEPTH> pv_line;
 
     void reset() {
@@ -798,6 +799,7 @@ struct search_stack {
         static_eval = VALUE_NONE;
         pv_length = 0;
         tt_pv = false;
+        excluded = move::none();
     }
 
     void pv_update(const move &m, search_stack *next) {
@@ -1050,19 +1052,27 @@ struct engine {
         tt::entry *entry = m_tt->get_entry(key);
         tt::entry::data tt_data = entry->get(key, ss->ply, depth, alpha, beta);
 
+        const move &excluded_move = ss->excluded;
+        bool has_excluded = !excluded_move.is_none();
+
+        tt_data.m = has_excluded ? move::none() : tt_data.m;
+
+        bool tt_pv = has_excluded ? ss->tt_pv : is_pv_node || (tt_data.hit && tt_data.pv);
+        ss->tt_pv = tt_pv;
+
         // early tt cutoff
-        if (!is_pv_node && tt_data.can_use && (cut_node == (tt_data.score >= beta)) &&
+        if (!is_pv_node && !has_excluded && tt_data.can_use && (cut_node == (tt_data.score >= beta)) &&
             tt_data.depth >= depth + (tt_data.score >= beta))
             return tt_data.score;
 
-        bool tt_pv = is_pv_node || (tt_data.hit && tt_data.pv);
-        ss->tt_pv = tt_pv;
         bool tt_noisy = !tt_data.m.is_none() && (tt_data.m.type() == move::EXPAND ||
                                                  (tt_data.m.type() == move::NORMAL && m_board.is_capture(tt_data.m)));
 
         int unadjusted_static_score = VALUE_NONE;
         int adjusted_static_score = VALUE_NONE;
-        if (tt_data.hit) {
+        if (has_excluded) {
+            unadjusted_static_score = adjusted_static_score = ss->static_eval;
+        } else if (tt_data.hit) {
             unadjusted_static_score = tt_data.static_score;
             if (!IS_VALID(unadjusted_static_score))
                 unadjusted_static_score = evaluate();
@@ -1112,7 +1122,7 @@ struct engine {
 
             // nmp
             if (cut_node && !(ss - 1)->m.is_none() && adjusted_static_score >= beta &&
-                IS_VALID(unadjusted_static_score) && !IS_LOSS(beta)) {
+                IS_VALID(unadjusted_static_score) && !IS_LOSS(beta) && !has_excluded) {
                 int reduction = 3 + depth / 6;
 
                 int reduced_depth = std::max(0, depth - reduction);
@@ -1218,10 +1228,34 @@ struct engine {
             }
 
             // singular extension
-            if ()
+            int extension = 0;
+            if (!is_root && !has_excluded && tt_data.m == m && tt_data.hit && IS_VALID(tt_data.score) &&
+                !IS_DECISIVE(tt_data.score) && (tt_data.flag == EXACT_FLAG || tt_data.flag == BETA_FLAG) &&
+                tt_data.depth >= depth - 3 && depth >= 5) {
+                int to_beat = tt_data.score - depth;
+                ss->excluded = m;
+                int next_best_score = negamax<false>(to_beat - 1, to_beat, (depth - 1) / 2, ss, cut_node);
+                ss->excluded = move::none();
 
+                if (m_timer.is_stopped())
+                    return 0;
 
-            int new_depth = depth - 1;
+                if (next_best_score < to_beat) {
+                    if (!is_pv_node && next_best_score < to_beat - 30)
+                        extension = 2;
+                    else
+                        extension = 1;
+                } else if (to_beat >= beta) {
+                    return to_beat;
+                }
+                // else if (tt_data.score >= beta) {
+                //     extension = -3 + tt_pv;
+                // } else if (cut_node) {
+                //     extension = -2;
+                // }
+            }
+
+            int new_depth = depth + extension - 1;
             ss->m = m;
             m_board.make_move(m);
 
@@ -1399,13 +1433,15 @@ struct engine {
 
         int flag = best_score >= beta ? BETA_FLAG : is_pv_node && !best_move.is_none() ? EXACT_FLAG : ALPHA_FLAG;
 
-        entry->set(key, flag, best_score, ss->ply, depth, best_move, unadjusted_static_score, tt_pv);
+        if (!has_excluded) {
+            entry->set(key, flag, best_score, ss->ply, depth, best_move, unadjusted_static_score, tt_pv);
+        }
 
         // update correction history
         bool best_move_capture =
                 !best_move.is_none() && (best_move.type() == move::EXPAND ||
                                          (best_move.type() == move::NORMAL && m_board.is_capture(best_move)));
-        if (IS_VALID(ss->static_eval) && !(best_move_capture && (best_score > ss->static_eval))) {
+        if (!has_excluded && IS_VALID(ss->static_eval) && !(best_move_capture && (best_score > ss->static_eval))) {
             int mask = m_heuristic->get_mask(m_board);
             if (mask != 0) {
                 int bonus = std::clamp((best_score - ss->static_eval) * depth / 8, -CORRECTION_LIMIT / 4,
