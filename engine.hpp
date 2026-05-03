@@ -376,6 +376,10 @@ struct evaluator {
 
         int total = std::round(pst_total);
 
+        int state = board.get_draw_state();
+        if (state == DRAW)
+            total = total * (512 - board.moves) / 512;
+
         // pair bonus
         int pairs = nearby(board.occ_with_height(board.side2move, 1, 2)) -
                     nearby(board.occ_with_height(board.side2move ^ 1, 1, 2));
@@ -397,7 +401,8 @@ struct evaluator {
             int contempt = (state == DRAW ? 0 : state == board.side2move ? 1 : -1);
             total += contempt * dist;
         }
-        return total;
+
+        return std::clamp(total, -MAX_EVAL, MAX_EVAL);
     }
 };
 
@@ -857,9 +862,6 @@ struct engine {
         // draw check
         int rep = m_board.is_repetition(ss->ply);
         if (rep) {
-            if (rep == 1)
-                return evaluate(true);
-
             return VALUE_DRAW;
         }
 
@@ -1023,9 +1025,6 @@ struct engine {
         // repetition
         int rep = m_board.is_repetition(ss->ply);
         if (!is_root && rep) {
-            if (rep == 1)
-                return evaluate(true);
-
             return VALUE_DRAW;
         }
 
@@ -1385,8 +1384,9 @@ struct engine {
                         m_heuristic->stack_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
                 }
 
-                for (auto &m: expand_moves)
+                for (auto &m: expand_moves) {
                     m_heuristic->expand_history[m_board.heights[m.square]][m.square][m.get_dir()].add_bonus(-malus);
+                }
             }
         }
 
