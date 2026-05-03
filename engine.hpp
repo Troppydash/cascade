@@ -49,8 +49,8 @@ std::string score_to_cp(int score) {
 }
 
 namespace param {
-    constexpr int EXPAND_QSEARCH_COST = 200;
-    constexpr int EXPAND_COST = 100;
+    constexpr int EXPAND_QSEARCH_COST = 300;
+    constexpr int EXPAND_COST = 200;
 }; // namespace param
 
 struct timer {
