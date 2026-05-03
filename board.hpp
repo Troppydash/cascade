@@ -493,12 +493,19 @@ struct board {
     }
 
     bool is_repetition(int ply) const {
-        for (int i = 2; i <= ply; i += 2) {
+        int count = 0;
+        for (int i = 2; true; i += 2) {
             if (past_length - i < 0)
                 break;
 
-            if (past[past_length].hash == past[past_length - i].hash)
-                return true;
+            if (past[past_length].hash == past[past_length - i].hash) {
+                if (i <= ply)
+                    return true;
+
+                count += 1;
+                if (count > 1)
+                    return true;
+            }
         }
 
         return false;

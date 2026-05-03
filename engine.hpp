@@ -94,7 +94,8 @@ struct tt {
             int score;
             int depth;
             move m;
-            int flag;
+            int8_t flag;
+            bool pv;
         };
 
         uint64_t hash;
@@ -102,7 +103,8 @@ struct tt {
         int score;
         int depth;
         move m;
-        int flag;
+        int8_t flag;
+        bool pv;
 
         void reset() {
             static_score = VALUE_NONE;
@@ -143,6 +145,7 @@ struct tt {
                         .depth = this->depth,
                         .m = this->m,
                         .flag = this->flag,
+                        .pv = this->pv,
                 };
             }
 
@@ -152,15 +155,16 @@ struct tt {
                     .score = VALUE_NONE,
                     .depth = UNINIT_DEPTH,
                     .m = move::none(),
-                    .flag = NO_FLAG};
+                    .flag = NO_FLAG,
+                    .pv = false};
         }
 
-        void set(uint64_t hash, int flag, int score, int ply, int depth, move m, int static_score) {
+        void set(uint64_t hash, int flag, int score, int ply, int depth, move m, int static_score, bool pv) {
             if (!m.is_none() || this->hash != hash) {
                 this->m = m;
             }
 
-            if (flag == EXACT_FLAG || this->hash != hash || (depth + 5) > this->depth) {
+            if (flag == EXACT_FLAG || this->hash != hash || (depth + 5 + pv) > this->depth) {
                 this->hash = hash;
                 this->depth = depth;
                 this->static_score = static_score;
@@ -173,6 +177,7 @@ struct tt {
                 }
                 this->score = score;
                 this->flag = flag;
+                this->pv = pv;
             }
         }
     };
@@ -625,6 +630,7 @@ struct search_stack {
     move m;
     int static_eval;
     int pv_length;
+    bool tt_pv;
     std::array<move, MAX_DEPTH> pv_line;
 
     void reset() {
@@ -632,6 +638,7 @@ struct search_stack {
         m = move::none();
         static_eval = VALUE_NONE;
         pv_length = 0;
+        tt_pv = false;
     }
 
     void pv_update(const move &m, search_stack *next) {
@@ -702,11 +709,11 @@ struct engine {
 
         // draw check
         if (m_board.is_repetition(ss->ply)) {
-            int state = m_board.get_draw_state();
-            if (state == DRAW)
-                return DRAW;
+            // int state = m_board.get_draw_state();
+            // if (state == DRAW)
+            return DRAW;
 
-            return evaluate(true);
+            // return evaluate(true);
         }
 
         alpha = std::max(alpha, MATED_IN(ss->ply));
@@ -743,7 +750,8 @@ struct engine {
             unadjusted_static_score = evaluate();
             adjusted_static_score = best_score = unadjusted_static_score;
 
-            entry->set(key, NO_FLAG, VALUE_NONE, ss->ply, UNSEARCHED_DEPTH, move::none(), unadjusted_static_score);
+            entry->set(key, NO_FLAG, VALUE_NONE, ss->ply, UNSEARCHED_DEPTH, move::none(), unadjusted_static_score,
+                       false);
         }
 
         // standing pat
@@ -817,7 +825,8 @@ struct engine {
 
         int flag = best_score >= beta ? BETA_FLAG : ALPHA_FLAG;
 
-        entry->set(key, flag, best_score, ss->ply, QDEPTH, best_move, unadjusted_static_score);
+        entry->set(key, flag, best_score, ss->ply, QDEPTH, best_move, unadjusted_static_score,
+                   tt_data.hit && tt_data.pv);
 
         return best_score;
     }
@@ -871,11 +880,11 @@ struct engine {
 
         // repetition
         if (!is_root && m_board.is_repetition(ss->ply)) {
-            int state = m_board.get_draw_state();
-            if (state == DRAW)
-                return DRAW;
+            // int state = m_board.get_draw_state();
+            // if (state == DRAW)
+            return DRAW;
 
-            return evaluate(true);
+            // return evaluate(true);
         }
 
         // tt lookup
@@ -888,6 +897,8 @@ struct engine {
             tt_data.depth >= depth + (tt_data.score >= beta))
             return tt_data.score;
 
+        bool tt_pv = is_pv_node || (tt_data.hit && tt_data.pv);
+        ss->tt_pv = tt_pv;
         bool tt_noisy = !tt_data.m.is_none() && (tt_data.m.type() == move::EXPAND ||
                                                  (tt_data.m.type() == move::NORMAL && m_board.is_capture(tt_data.m)));
 
@@ -910,7 +921,8 @@ struct engine {
             unadjusted_static_score = evaluate();
             ss->static_eval = adjusted_static_score = unadjusted_static_score;
 
-            entry->set(key, NO_FLAG, VALUE_NONE, ss->ply, UNSEARCHED_DEPTH, move::none(), unadjusted_static_score);
+            entry->set(key, NO_FLAG, VALUE_NONE, ss->ply, UNSEARCHED_DEPTH, move::none(), unadjusted_static_score,
+                       ss->tt_pv);
         }
 
         bool improving = false;
@@ -928,8 +940,8 @@ struct engine {
 
         // static null move pruning
         int margin = 100 * depth;
-        if (!is_pv_node && IS_VALID(adjusted_static_score) && adjusted_static_score - margin >= beta &&
-            !IS_LOSS(beta) && depth <= 10 && !IS_WIN(adjusted_static_score) && (tt_data.m.is_none() || tt_noisy)) {
+        if (!is_pv_node && IS_VALID(adjusted_static_score) && adjusted_static_score - margin >= beta && !IS_LOSS(beta) &&
+            depth <= 10 && !IS_WIN(adjusted_static_score) && (tt_data.m.is_none() || tt_noisy)) {
             return (beta + adjusted_static_score) / 2;
         }
 
@@ -958,6 +970,9 @@ struct engine {
         if ((is_pv_node || cut_node) && depth >= 2 && tt_data.m.is_none()) {
             depth -= 1;
         }
+
+        // TODO: prob cut
+
 
         // negamax
         movepick gen{tt_data.m, m_board, ss->ply, *m_heuristic, m_evaluator, movepick::stage::PV};
@@ -1016,19 +1031,20 @@ struct engine {
                 if (cut_node)
                     reduction += 2;
 
-                reduction -= is_pv_node;
+                reduction += !improving;
+
+                reduction -= is_pv_node + tt_pv;
 
                 reduction += tt_noisy;
 
                 reduction -= m.score / 8000;
 
-
                 int reduced_depth = std::clamp(new_depth - reduction, 1, new_depth + 1);
                 score = -negamax<false>(-(alpha + 1), -alpha, reduced_depth, ss + 1, true);
                 if (score > alpha && reduced_depth < new_depth) {
-                    // new_depth += score > best_score + 50 + new_depth * 2;
-                    // new_depth -= score < best_score + 10;
-                    //
+                    // new_depth += score > best_score + 60 + new_depth * 2;
+                    // new_depth -= score < best_score + 20;
+
                     if (reduced_depth < new_depth)
                         score = -negamax<false>(-(alpha + 1), -alpha, new_depth, ss + 1, !cut_node);
                 }
@@ -1057,6 +1073,9 @@ struct engine {
                         break;
 
                     alpha = score;
+
+                    // if (depth > 4 && depth < 10 && !IS_LOSS(best_score))
+                    //     depth -= 1;
                 }
             }
 
@@ -1144,9 +1163,12 @@ struct engine {
             }
         }
 
+        if (best_score <= alpha)
+            ss->tt_pv = tt_pv = tt_pv || (ss - 1)->tt_pv;
+
         int flag = best_score >= beta ? BETA_FLAG : is_pv_node && !best_move.is_none() ? EXACT_FLAG : ALPHA_FLAG;
 
-        entry->set(key, flag, best_score, ss->ply, depth, best_move, unadjusted_static_score);
+        entry->set(key, flag, best_score, ss->ply, depth, best_move, unadjusted_static_score, tt_pv);
 
         return best_score;
     }
