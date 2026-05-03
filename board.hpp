@@ -706,29 +706,17 @@ struct movegen {
     std::vector<move> get_captures() {
         constexpr std::array<int, 4> dirs{move::UP, move::DOWN, move::LEFT, move::RIGHT};
 
-        // expands
+        // expands, captures/stacks
         uint64_t occ = m_board.occ[m_board.side2move];
         std::vector<move> moves{};
         while (occ) {
             int idx = __builtin_ctzll(occ);
             occ ^= (1ull << idx);
 
-            if (m_board.heights[idx] == 1) {
-                continue;
-            }
-
             for (int dir: dirs) {
-                moves.push_back(move::make_expand(idx, dir));
-            }
-        }
-
-        // captures/stacks
-        occ = m_board.occ[m_board.side2move];
-        while (occ) {
-            int idx = __builtin_ctzll(occ);
-            occ ^= (1ull << idx);
-
-            for (int dir: dirs) {
+                if (m_board.heights[idx] > 1) {
+                    moves.push_back(move::make_expand(idx, dir));
+                }
                 if (move::valid_normal(idx, dir)) {
                     bool is_capture = (m_board.occ[m_board.side2move ^ 1] & (1ull << (idx + dir))) &&
                                       m_board.heights[idx] >= m_board.heights[idx + dir];

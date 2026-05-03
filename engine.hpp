@@ -521,6 +521,8 @@ struct movepick {
 
                             if (m == counter_move)
                                 m.score += 20000;
+
+                            m.score = std::clamp(m.score, -30000, 30000);
                         }
 
                         sort_moves(moves, move_ptr, moves.size());
