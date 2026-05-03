@@ -219,6 +219,7 @@ struct history_entry {
 
 constexpr int LOW_PLY = 3;
 constexpr int MASK_SIZE = 1 << 10;
+constexpr int CORRECTION_LIMIT = 1024;
 
 struct heuristics {
     int lmr[64][64];
@@ -232,6 +233,8 @@ struct heuristics {
 
     history_entry<int, 20000> low_ply_history[LOW_PLY][64][64];
     history_entry<int, 20000> mask_history[MASK_SIZE][64][64];
+
+    history_entry<int, CORRECTION_LIMIT> correction_history[2][MASK_SIZE];
 
     move counter_move[13][64];
 
@@ -861,7 +864,7 @@ struct engine {
         }
 
         if (ss->ply >= MAX_DEPTH - 5) {
-            return evaluate(true);
+            return to_corrected_static_eval(evaluate(true));
         }
 
         if (m_board.is_lost()) {
@@ -890,7 +893,8 @@ struct engine {
             if (!IS_VALID(unadjusted_static_score))
                 unadjusted_static_score = evaluate();
 
-            adjusted_static_score = best_score = unadjusted_static_score;
+            int corrected = to_corrected_static_eval(unadjusted_static_score);
+            adjusted_static_score = best_score = corrected;
 
             bool bound_hit = tt_data.flag == EXACT_FLAG ||
                              (tt_data.flag == BETA_FLAG && tt_data.score > adjusted_static_score) ||
@@ -900,7 +904,8 @@ struct engine {
             }
         } else {
             unadjusted_static_score = evaluate();
-            adjusted_static_score = best_score = unadjusted_static_score;
+            int corrected = to_corrected_static_eval(unadjusted_static_score);
+            adjusted_static_score = best_score = corrected;
 
             entry->set(key, NO_FLAG, VALUE_NONE, ss->ply, UNSEARCHED_DEPTH, move::none(), unadjusted_static_score,
                        false);
@@ -1025,7 +1030,7 @@ struct engine {
         }
 
         if (ss->ply >= MAX_DEPTH - 5)
-            return evaluate(true);
+            return to_corrected_static_eval(evaluate(true));
 
 
         if (!is_root && m_board.is_lost()) {
@@ -1063,7 +1068,8 @@ struct engine {
             if (!IS_VALID(unadjusted_static_score))
                 unadjusted_static_score = evaluate();
 
-            ss->static_eval = adjusted_static_score = unadjusted_static_score;
+            int corrected = to_corrected_static_eval(unadjusted_static_score);
+            ss->static_eval = adjusted_static_score = corrected;
 
             bool bound_hit = tt_data.flag == EXACT_FLAG ||
                              (tt_data.flag == BETA_FLAG && tt_data.score > adjusted_static_score) ||
@@ -1073,7 +1079,8 @@ struct engine {
             }
         } else {
             unadjusted_static_score = evaluate();
-            ss->static_eval = adjusted_static_score = unadjusted_static_score;
+            int corrected = to_corrected_static_eval(unadjusted_static_score);
+            ss->static_eval = adjusted_static_score = corrected;
 
             entry->set(key, NO_FLAG, VALUE_NONE, ss->ply, UNSEARCHED_DEPTH, move::none(), unadjusted_static_score,
                        ss->tt_pv);
@@ -1390,9 +1397,30 @@ struct engine {
 
         entry->set(key, flag, best_score, ss->ply, depth, best_move, unadjusted_static_score, tt_pv);
 
+        // update correction history
+        bool best_move_capture =
+                !best_move.is_none() && (best_move.type() == move::EXPAND ||
+                                         (best_move.type() == move::NORMAL && m_board.is_capture(best_move)));
+        if (IS_VALID(ss->static_eval) && !(best_move_capture && (best_score > ss->static_eval))) {
+            int mask = m_heuristic->get_mask(m_board);
+            if (mask != 0) {
+                int bonus = std::clamp((best_score - ss->static_eval) * depth / 8, -CORRECTION_LIMIT / 4,
+                                       CORRECTION_LIMIT / 4);
+                m_heuristic->correction_history[m_board.side2move][mask].add_bonus(bonus);
+            }
+        }
+
         return best_score;
     }
 
+    int to_corrected_static_eval(int static_eval) const {
+        int mask = m_heuristic->get_mask(m_board);
+        if (mask == 0)
+            return static_eval;
+
+        int value = 30 * m_heuristic->correction_history[m_board.side2move][mask].get_value() / 512;
+        return static_eval + value;
+    }
 
     result search(int64_t opt_time, int64_t max_time) {
         nodes = 0;
