@@ -990,75 +990,84 @@ struct engine {
             improving = ss->static_eval > (ss - 4)->static_eval;
         }
 
-        // razoring
-        if (!is_pv_node && IS_VALID(adjusted_static_score) && !IS_DECISIVE(alpha) &&
-            adjusted_static_score < alpha - 300 - 300 * depth * depth) {
-            return qsearch<false>(alpha, beta, 0, ss);
-        }
-
-        // static null move pruning
-        int margin = 100 * depth;
-        if (!is_pv_node && IS_VALID(adjusted_static_score) && adjusted_static_score - margin >= beta &&
-            !IS_LOSS(beta) && depth <= 10 && !IS_WIN(adjusted_static_score) && (tt_data.m.is_none() || tt_noisy)) {
-            return (beta + adjusted_static_score) / 2;
-        }
-
-        // nmp
         int count = std::popcount(m_board.occ[m_board.side2move]);
-        if (cut_node && !(ss - 1)->m.is_none() && count >= 2 && adjusted_static_score >= beta &&
-            IS_VALID(unadjusted_static_score) && !IS_LOSS(beta)) {
-            int reduction = 3 + depth / 6;
+        if (count <= 1)
+            goto moves;
 
-            int reduced_depth = std::max(0, depth - reduction);
+        {
+            // razoring
+            if (!is_pv_node && IS_VALID(adjusted_static_score) && !IS_DECISIVE(alpha) &&
+                adjusted_static_score < alpha - 300 - 300 * depth * depth) {
+                return qsearch<false>(alpha, beta, 0, ss);
+            }
 
-            auto null = move::none();
-            ss->m = null;
-            m_board.make_move(null);
-            int null_score = -negamax<false>(-beta, -beta + 1, reduced_depth, ss + 1, false);
-            m_board.unmake_move(null);
+            // static null move pruning
+            int margin = 100 * depth;
+            if (!is_pv_node && IS_VALID(adjusted_static_score) && adjusted_static_score - margin >= beta &&
+                !IS_LOSS(beta) && depth <= 10 && !IS_WIN(adjusted_static_score) && (tt_data.m.is_none() || tt_noisy)) {
+                return (beta + adjusted_static_score) / 2;
+            }
 
-            if (m_timer.is_stopped())
-                return 0;
+            // nmp
+            if (cut_node && !(ss - 1)->m.is_none() && adjusted_static_score >= beta &&
+                IS_VALID(unadjusted_static_score) && !IS_LOSS(beta)) {
+                int reduction = 3 + depth / 6;
 
-            if (null_score >= beta)
-                return null_score;
-        }
+                int reduced_depth = std::max(0, depth - reduction);
 
-        // iir
-        if ((is_pv_node || cut_node) && depth >= (2 + 2 * cut_node) && tt_data.m.is_none()) {
-            depth -= 1;
-        }
-
-        // prob cut
-        int probcut_beta = beta + 300;
-        if (!is_pv_node && m_board.is_drop() && depth >= 5 && !IS_DECISIVE(beta) &&
-            !(tt_data.hit && IS_VALID(tt_data.score) && tt_data.score < probcut_beta && tt_data.depth >= depth - 3)) {
-            movepick gen{tt_data.m, m_board, (ss - 1)->m, ss->ply, *m_heuristic, m_evaluator, movepick::QPV};
-            int probcut_depth = depth - 4;
-            int move_count = 0;
-            move m;
-            while (!(m = gen.next_move()).is_none()) {
-                move_count += 1;
-
-                ss->m = m;
-                m_board.make_move(m);
-
-                int score = -qsearch<false>(-probcut_beta, -probcut_beta + 1, 0, ss + 1);
-                if (score >= probcut_beta && probcut_depth > 0) {
-                    score = -negamax<false>(-probcut_beta, -probcut_beta + 1, probcut_depth, ss + 1, !cut_node);
-                }
-
-                m_board.unmake_move(m);
+                auto null = move::none();
+                ss->m = null;
+                m_board.make_move(null);
+                int null_score = -negamax<false>(-beta, -beta + 1, reduced_depth, ss + 1, false);
+                m_board.unmake_move(null);
 
                 if (m_timer.is_stopped())
                     return 0;
 
-                if (score >= probcut_beta) {
-                    entry->set(key, BETA_FLAG, score, ss->ply, probcut_depth + 1, m, unadjusted_static_score, tt_pv);
-                    return score - probcut_beta + beta;
+                if (null_score >= beta)
+                    return null_score;
+            }
+
+            // iir
+            if ((is_pv_node || cut_node) && depth >= (2 + 2 * cut_node) && tt_data.m.is_none()) {
+                depth -= 1;
+            }
+
+            // prob cut
+            int probcut_beta = beta + 300;
+            if (!is_pv_node && m_board.is_drop() && depth >= 5 && !IS_DECISIVE(beta) &&
+                !(tt_data.hit && IS_VALID(tt_data.score) && tt_data.score < probcut_beta &&
+                  tt_data.depth >= depth - 3)) {
+                movepick gen{tt_data.m, m_board, (ss - 1)->m, ss->ply, *m_heuristic, m_evaluator, movepick::QPV};
+                int probcut_depth = depth - 4;
+                int move_count = 0;
+                move m;
+                while (!(m = gen.next_move()).is_none()) {
+                    move_count += 1;
+
+                    ss->m = m;
+                    m_board.make_move(m);
+
+                    int score = -qsearch<false>(-probcut_beta, -probcut_beta + 1, 0, ss + 1);
+                    if (score >= probcut_beta && probcut_depth > 0) {
+                        score = -negamax<false>(-probcut_beta, -probcut_beta + 1, probcut_depth, ss + 1, !cut_node);
+                    }
+
+                    m_board.unmake_move(m);
+
+                    if (m_timer.is_stopped())
+                        return 0;
+
+                    if (score >= probcut_beta) {
+                        entry->set(key, BETA_FLAG, score, ss->ply, probcut_depth + 1, m, unadjusted_static_score,
+                                   tt_pv);
+                        return score - probcut_beta + beta;
+                    }
                 }
             }
         }
+
+    moves:
 
         // negamax
         movepick gen{tt_data.m, m_board, (ss - 1)->m, ss->ply, *m_heuristic, m_evaluator, movepick::stage::PV};
@@ -1084,7 +1093,7 @@ struct engine {
                 }
 
                 // fut prune
-                if (m.type() == move::NORMAL && !m_board.is_capture(m) && lmr_depth <= 6 &&
+                if (m.type() == move::NORMAL && !m_board.is_capture(m) && lmr_depth <= 7 &&
                     ss->static_eval + 200 + 200 * lmr_depth <= alpha) {
                     gen.skip_quiet();
                     continue;
@@ -1092,7 +1101,7 @@ struct engine {
 
                 // capture fut prune
                 bool is_capture = (m.type() == move::NORMAL && m_board.is_capture(m)) || m.type() == move::EXPAND;
-                if (is_capture && lmr_depth <= 6) {
+                if (is_capture && lmr_depth <= 7) {
                     int additional = 0;
                     if (m.type() == move::NORMAL && m_board.is_capture(m)) {
                         additional = m_evaluator.pst[m.to()][m_board.heights[m.to()]];
