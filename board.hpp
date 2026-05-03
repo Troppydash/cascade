@@ -461,7 +461,7 @@ struct board {
     }
 
     int get_state(bool skip_rep = false) const {
-        if (is_repetition(0))
+        if (!skip_rep && is_repetition(0))
             return DRAW;
 
         if (moves < DROPS)
