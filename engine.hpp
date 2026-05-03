@@ -225,6 +225,7 @@ struct heuristics {
     history_entry<int, 20000> capture_history[13][64];
     history_entry<int, 20000> stack_history[13][64];
     history_entry<int, 20000> expand_history[13][64][4];
+    move counter_move[13][64];
 
     std::array<move, 2> killers[MAX_DEPTH];
 
@@ -236,6 +237,10 @@ struct heuristics {
 
         for (auto &m: killers)
             m[0] = m[1] = move::none();
+
+        for (auto &a: counter_move)
+            for (auto &b: a)
+                b = move::none();
     }
 
     [[nodiscard]] int get_lmr(int depth, int move) const { return lmr[std::min(63, depth)][std::min(63, move)]; }
@@ -332,15 +337,17 @@ struct movepick {
     int m_ply;
     bool m_skip_quiet;
 
+    const move &m_prev_move;
+
     int move_ptr;
     int bad_moves;
     std::vector<move> moves;
 
     // negamax, qsearch
-    explicit movepick(const move &pv, const board &board, int ply, const heuristics &heur, const evaluator &eval,
-                      stage st = PV) :
-        m_pv(pv), m_board(board), m_heur(heur), m_eval(eval), m_ply(ply), move_ptr{0}, moves{}, bad_moves{},
-        m_skip_quiet{false} {
+    explicit movepick(const move &pv, const board &board, const move &prev_move, int ply, const heuristics &heur,
+                      const evaluator &eval, stage st = PV) :
+        m_pv(pv), m_board(board), m_heur(heur), m_eval(eval), m_prev_move{prev_move}, m_ply(ply), move_ptr{0}, moves{},
+        bad_moves{}, m_skip_quiet{false} {
         if (m_board.is_drop())
             m_stage = DROP_PV;
         else
@@ -371,7 +378,6 @@ struct movepick {
                     }
                 }
             } else {
-
                 before -= 1;
                 if (before == 0) {
                     break;
@@ -486,6 +492,11 @@ struct movepick {
                         moves.insert(moves.end(), std::make_move_iterator(quiets.begin()),
                                      std::make_move_iterator(quiets.end()));
 
+                        // move counter_move = move::none();
+                        // if (!m_prev_move.is_none()) {
+                        //     counter_move = m_heur.counter_move[m_board.heights[m_prev_move.to()]][m_prev_move.to()];
+                        // }
+
                         // score moves
                         for (int i = move_ptr; i < moves.size(); ++i) {
                             auto &m = moves[i];
@@ -497,12 +508,19 @@ struct movepick {
                                 continue;
                             }
 
+                            if (m == m_heur.killers[m_ply][0]) {
+                                m.score = 32000;
+                                continue;
+                            }
+                            if (m == m_heur.killers[m_ply][1]) {
+                                m.score = 31000;
+                                continue;
+                            }
+
                             m.score = m_heur.main_history[m.square][m.to()].get_value();
 
-                            if (m == m_heur.killers[m_ply][0])
-                                m.score = 32000;
-                            else if (m == m_heur.killers[m_ply][1])
-                                m.score = 31000;
+                            // if (m == counter_move)
+                            //     m.score += 20000;
                         }
 
                         sort_moves(moves, move_ptr, moves.size());
@@ -708,12 +726,12 @@ struct engine {
         }
 
         // draw check
-        if (m_board.is_repetition(ss->ply)) {
-            // int state = m_board.get_draw_state();
-            // if (state == DRAW)
-            return DRAW;
+        int rep = m_board.is_repetition(ss->ply);
+        if (rep) {
+            if (rep == 1)
+                return VALUE_DRAW;
 
-            // return evaluate(true);
+            return evaluate(true);
         }
 
         alpha = std::max(alpha, MATED_IN(ss->ply));
@@ -769,7 +787,7 @@ struct engine {
         int score;
         move best_move = move::none();
         move m = move::none();
-        movepick gen{tt_data.m, m_board, ss->ply, *m_heuristic, m_evaluator, movepick::stage::QPV};
+        movepick gen{tt_data.m, m_board, (ss - 1)->m, ss->ply, *m_heuristic, m_evaluator, movepick::stage::QPV};
         int move_count = 0;
         while (!(m = gen.next_move()).is_none()) {
             move_count += 1;
@@ -879,12 +897,12 @@ struct engine {
         }
 
         // repetition
-        if (!is_root && m_board.is_repetition(ss->ply)) {
-            // int state = m_board.get_draw_state();
-            // if (state == DRAW)
-            return DRAW;
+        int rep = m_board.is_repetition(ss->ply);
+        if (!is_root && rep) {
+            if (rep == 1)
+                return VALUE_DRAW;
 
-            // return evaluate(true);
+            return evaluate(true);
         }
 
         // tt lookup
@@ -940,8 +958,8 @@ struct engine {
 
         // static null move pruning
         int margin = 100 * depth;
-        if (!is_pv_node && IS_VALID(adjusted_static_score) && adjusted_static_score - margin >= beta && !IS_LOSS(beta) &&
-            depth <= 10 && !IS_WIN(adjusted_static_score) && (tt_data.m.is_none() || tt_noisy)) {
+        if (!is_pv_node && IS_VALID(adjusted_static_score) && adjusted_static_score - margin >= beta &&
+            !IS_LOSS(beta) && depth <= 10 && !IS_WIN(adjusted_static_score) && (tt_data.m.is_none() || tt_noisy)) {
             return (beta + adjusted_static_score) / 2;
         }
 
@@ -975,7 +993,7 @@ struct engine {
 
 
         // negamax
-        movepick gen{tt_data.m, m_board, ss->ply, *m_heuristic, m_evaluator, movepick::stage::PV};
+        movepick gen{tt_data.m, m_board, (ss - 1)->m, ss->ply, *m_heuristic, m_evaluator, movepick::stage::PV};
         move m;
         int move_count = 0;
         int score;
@@ -1128,6 +1146,11 @@ struct engine {
                                 m_heuristic->killers[ss->ply][1] = m_heuristic->killers[ss->ply][0];
                             }
                             m_heuristic->killers[ss->ply][0] = m;
+
+                            auto prev_move = (ss - 1)->m;
+                            if (!prev_move.is_none()) {
+                                m_heuristic->counter_move[m_board.heights[prev_move.to()]][prev_move.to()] = best_move;
+                            }
 
                             for (auto &m: quiet_moves)
                                 m_heuristic->main_history[m_board.heights[m.square]][m.to()].add_bonus(-malus);
