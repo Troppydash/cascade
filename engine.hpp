@@ -251,23 +251,32 @@ struct heuristics {
     [[nodiscard]] int get_lmr(int depth, int move) const { return lmr[std::min(63, depth)][std::min(63, move)]; }
 };
 
+constexpr std::array<int, 13> HEIGHT_OFFSET = {0, -10, 0, 10, 30, 40, 30, 10, 0, -40, -50, -60, -70};
+// clang-format off
+constexpr std::array<int, 64> SQUARE_VALUE = {
+    -50, -30, -30, -30, -30, -30, -30, -50,
+    -30, -20, 000, 000, 000, 000, -20, -30,
+    -30, 000, 020, 020, 020, 020, 000, -30,
+    -30, 000, 020, 060, 060, 020, 000, -30,
+    -30, 000, 020, 060, 060, 020, 000, -30,
+    -30, 000, 020, 020, 020, 020, 000, -30,
+    -30, -20, 000, 000, 000, 000, -20, -30,
+    -50, -30, -30, -30, -30, -30, -30, -50,
+};
+// clang-format on
+
 // TODO: make this inc
 struct evaluator {
     // note that 100 is 1 piece
     int pst[64][13];
 
     explicit evaluator() {
-        const std::array<int, 13> heights = {0, -10, 0, 10, 30, 40, 30, 10, 0, -40, -50, -60, -70};
 
         // create pst
         for (int i = 0; i < 64; ++i) {
-            int row = i / 8;
-            int col = i % 8;
-            int sq = 3 - std::abs(row - 3) + 3 - std::abs(col - 3);
-            int sq_value = sq * 5;
-
+            int sq_value = SQUARE_VALUE[i];
             for (int j = 0; j < 13; ++j) {
-                int height_value = j * 100 + heights[j];
+                int height_value = j * 100 + HEIGHT_OFFSET[j];
                 pst[i][j] = sq_value + height_value;
             }
         }
