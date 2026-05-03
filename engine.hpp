@@ -1029,8 +1029,36 @@ struct engine {
             depth -= 1;
         }
 
-        // TODO: prob cut
+        // prob cut
+        int probcut_beta = beta + 300;
+        if (!is_pv_node && m_board.is_drop() && depth >= 5 && !IS_DECISIVE(beta) &&
+            !(tt_data.hit && IS_VALID(tt_data.score) && tt_data.score < probcut_beta && tt_data.depth >= depth - 3)) {
+            movepick gen{tt_data.m, m_board, (ss - 1)->m, ss->ply, *m_heuristic, m_evaluator, movepick::QPV};
+            int probcut_depth = depth - 4;
+            int move_count = 0;
+            move m;
+            while (!(m = gen.next_move()).is_none()) {
+                move_count += 1;
 
+                ss->m = m;
+                m_board.make_move(m);
+
+                int score = -qsearch<false>(-probcut_beta, -probcut_beta + 1, 0, ss + 1);
+                if (score >= probcut_beta && probcut_depth > 0) {
+                    score = -negamax<false>(-probcut_beta, -probcut_beta + 1, probcut_depth, ss + 1, !cut_node);
+                }
+
+                m_board.unmake_move(m);
+
+                if (m_timer.is_stopped())
+                    return 0;
+
+                if (score >= probcut_beta) {
+                    entry->set(key, BETA_FLAG, score, ss->ply, probcut_depth + 1, m, unadjusted_static_score, tt_pv);
+                    return score - probcut_beta + beta;
+                }
+            }
+        }
 
         // negamax
         movepick gen{tt_data.m, m_board, (ss - 1)->m, ss->ply, *m_heuristic, m_evaluator, movepick::stage::PV};
