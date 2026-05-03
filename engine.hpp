@@ -394,13 +394,13 @@ struct evaluator {
             total += 20;
         }
 
-        if (draw) {
-            // draw contempt
-            int dist = board.moves;
-            int state = board.get_draw_state();
-            int contempt = (state == DRAW ? 0 : state == board.side2move ? 1 : -1);
-            total += contempt * dist;
-        }
+        // if (draw) {
+        //     // draw contempt
+        //     int dist = board.moves;
+        //     int state = board.get_draw_state();
+        //     int contempt = (state == DRAW ? 0 : state == board.side2move ? 1 : -1);
+        //     total += contempt * dist;
+        // }
 
         return std::clamp(total, -MAX_EVAL, MAX_EVAL);
     }
@@ -1216,6 +1216,10 @@ struct engine {
                     }
                 }
             }
+
+            // singular extension
+            if ()
+
 
             int new_depth = depth - 1;
             ss->m = m;
