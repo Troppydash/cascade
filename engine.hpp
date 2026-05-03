@@ -249,6 +249,23 @@ struct heuristics {
     }
 
     [[nodiscard]] int get_lmr(int depth, int move) const { return lmr[std::min(63, depth)][std::min(63, move)]; }
+
+    // uint64_t get_height_keys(const board &board) {
+    //     uint64_t key = 0;
+    //
+    //     // WHITE
+    //     auto zob = zobrist::get();
+    //     uint64_t mask = board.occ[0];
+    //     while (mask) {
+    //         int i = __builtin_ctzll(mask);
+    //         mask ^= (1ull << i);
+    //
+    //         if (board.heights[i] > 2) {
+    //             key ^= zob.pst[board.heights[i]]
+    //         }
+    //     }
+    //
+    // }
 };
 
 constexpr std::array<int, 13> HEIGHT_OFFSET = {0, -10, 0, 10, 30, 40, 30, 10, 0, -40, -50, -60, -70};
@@ -1137,8 +1154,8 @@ struct engine {
                 int reduced_depth = std::clamp(new_depth - reduction, 1, new_depth + 1);
                 score = -negamax<false>(-(alpha + 1), -alpha, reduced_depth, ss + 1, true);
                 if (score > alpha && reduced_depth < new_depth) {
-                    // new_depth += score > best_score + 60 + new_depth * 2;
-                    // new_depth -= score < best_score + 20;
+                    new_depth += score > best_score + 60 + new_depth * 2;
+                    new_depth -= score < best_score + 10;
 
                     if (reduced_depth < new_depth)
                         score = -negamax<false>(-(alpha + 1), -alpha, new_depth, ss + 1, !cut_node);
