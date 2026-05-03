@@ -286,6 +286,8 @@ struct heuristics {
 };
 
 constexpr std::array<int, 13> HEIGHT_OFFSET = {0, -10, 0, 10, 30, 40, 30, 10, 0, -40, -50, -60, -70};
+constexpr std::array<int, 13> SQUARE_HEIGHT_SCALER = {0, -10, -10, 0, 10, 20, 40, 50, 70, 70, 70, 70, 70};
+
 // clang-format off
 constexpr std::array<int, 64> SQUARE_VALUE = {
     -50, -30, -30, -30, -30, -30, -30, -50,
@@ -310,6 +312,7 @@ constexpr std::array<int, 64> SQUARE_VALUE_EG = {
 };
 // clang-format on
 
+
 // TODO: make this inc
 struct evaluator {
     // note that 100 is 1 piece
@@ -323,8 +326,8 @@ struct evaluator {
             int sq_value_eg = SQUARE_VALUE_EG[i];
             for (int j = 0; j < 13; ++j) {
                 int height_value = j * 100 + HEIGHT_OFFSET[j];
-                pst[i][j] = sq_value + height_value;
-                pst_eg[i][j] = sq_value_eg + height_value;
+                pst[i][j] = std::round(sq_value * (1.0 + SQUARE_HEIGHT_SCALER[j] / 100.0)) + height_value;
+                pst_eg[i][j] = std::round(sq_value_eg * (1.0 + SQUARE_HEIGHT_SCALER[j] / 100.0)) + height_value;
             }
         }
     }
@@ -788,6 +791,7 @@ struct search_stack {
     int ply;
     move m;
     int static_eval;
+    int complexity;
     int pv_length;
     bool tt_pv;
     move excluded;
@@ -800,6 +804,7 @@ struct search_stack {
         pv_length = 0;
         tt_pv = false;
         excluded = move::none();
+        complexity = 0;
     }
 
     void pv_update(const move &m, search_stack *next) {
@@ -1078,6 +1083,7 @@ struct engine {
                 unadjusted_static_score = evaluate();
 
             int corrected = to_corrected_static_eval(unadjusted_static_score);
+            ss->complexity = std::abs(unadjusted_static_score - corrected);
             ss->static_eval = adjusted_static_score = corrected;
 
             bool bound_hit = tt_data.flag == EXACT_FLAG ||
@@ -1089,6 +1095,7 @@ struct engine {
         } else {
             unadjusted_static_score = evaluate();
             int corrected = to_corrected_static_eval(unadjusted_static_score);
+            ss->complexity = std::abs(unadjusted_static_score - corrected);
             ss->static_eval = adjusted_static_score = corrected;
 
             entry->set(key, NO_FLAG, VALUE_NONE, ss->ply, UNSEARCHED_DEPTH, move::none(), unadjusted_static_score,
@@ -1195,9 +1202,17 @@ struct engine {
         while (!(m = gen.next_move()).is_none()) {
             move_count += 1;
 
+            bool is_quiet = m.type() == move::NORMAL && !m_board.is_capture(m);
+
             // low depth pruning
             if (!is_root && count >= 2 && !IS_LOSS(best_score)) {
                 int lmr_depth = std::clamp(depth - m_heuristic->get_lmr(depth, move_count), 1, depth + 1);
+
+                // history pruning
+                if (is_quiet && m.score < -7000 * depth) {
+                    gen.skip_quiet();
+                    continue;
+                }
 
                 // late move pruning
                 if (move_count >= (3 + depth * depth) / (2 - improving)) {
@@ -1205,8 +1220,8 @@ struct engine {
                 }
 
                 // fut prune
-                if (m.type() == move::NORMAL && !m_board.is_capture(m) && lmr_depth <= 7 &&
-                    ss->static_eval + 200 + 200 * lmr_depth <= alpha) {
+                if (m.type() == move::NORMAL && !m_board.is_capture(m) && quiet_moves.size() >= 1 &&
+                    lmr_depth <= 7 & ss->static_eval + 200 + 200 * lmr_depth <= alpha) {
                     gen.skip_quiet();
                     continue;
                 }
@@ -1273,6 +1288,8 @@ struct engine {
                 reduction += tt_noisy;
 
                 reduction -= m.score / 8000;
+
+                // reduction -= ss->complexity / 300;
 
                 int reduced_depth = std::clamp(new_depth - reduction, 1, new_depth + 1);
                 score = -negamax<false>(-(alpha + 1), -alpha, reduced_depth, ss + 1, true);
@@ -1459,7 +1476,7 @@ struct engine {
             return static_eval;
 
         int value = 30 * m_heuristic->correction_history[m_board.side2move][mask].get_value() / 512;
-        return static_eval + value;
+        return std::clamp(static_eval + value, -MAX_EVAL, MAX_EVAL);
     }
 
     result search(int64_t opt_time, int64_t max_time) {

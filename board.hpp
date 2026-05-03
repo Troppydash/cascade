@@ -59,7 +59,7 @@ struct move {
         return expand == other.expand && square == other.square && dir == other.dir;
     }
 
-    static move none() { return {.expand = false, .square = 64, .dir = 0}; }
+    constexpr static move none() { return {.expand = false, .square = 64, .dir = 0}; }
 
     static bool valid_normal(int square, int dir) {
         int row = square / SIZE;
