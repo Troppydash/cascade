@@ -270,7 +270,7 @@ struct evaluator {
     }
 
     int evaluate(const board &board, bool draw) {
-        assert(board.get_state() == NONE);
+        assert(board.get_state(true) == NONE);
 
         int total = 0;
 
@@ -493,7 +493,7 @@ struct movepick {
                                      std::make_move_iterator(quiets.end()));
 
                         move counter_move = move::none();
-                        if (!m_prev_move.is_none()) {
+                        if (!m_prev_move.is_none() && m_prev_move.type() == move::NORMAL) {
                             counter_move = m_heur.counter_move[m_board.heights[m_prev_move.to()]][m_prev_move.to()];
                         }
 
@@ -717,9 +717,6 @@ struct engine {
             return -INF + ss->ply;
         }
 
-        if (ss->ply >= MAX_DEPTH - 5) {
-            return evaluate(true);
-        }
 
         // draw check
         int rep = m_board.is_repetition(ss->ply);
@@ -728,6 +725,10 @@ struct engine {
                 return evaluate(true);
 
             return VALUE_DRAW;
+        }
+
+        if (ss->ply >= MAX_DEPTH - 5) {
+            return evaluate(true);
         }
 
         if (m_board.is_lost()) {
@@ -874,9 +875,6 @@ struct engine {
             return -INF + ss->ply;
         }
 
-        if (ss->ply >= MAX_DEPTH - 5)
-            return evaluate(true);
-
 
         if (depth <= 0)
             return qsearch<is_pv_node>(alpha, beta, depth, ss);
@@ -892,6 +890,10 @@ struct engine {
 
             return VALUE_DRAW;
         }
+
+        if (ss->ply >= MAX_DEPTH - 5)
+            return evaluate(true);
+
 
         if (!is_root && m_board.is_lost()) {
             return MATED_IN(ss->ply);
@@ -986,7 +988,7 @@ struct engine {
         }
 
         // iir
-        if ((is_pv_node || cut_node) && depth >= 2 && tt_data.m.is_none()) {
+        if ((is_pv_node || cut_node) && depth >= (2 + 2 * cut_node) && tt_data.m.is_none()) {
             depth -= 1;
         }
 
@@ -1149,7 +1151,7 @@ struct engine {
                             m_heuristic->killers[ss->ply][0] = m;
 
                             auto prev_move = (ss - 1)->m;
-                            if (!prev_move.is_none()) {
+                            if (!prev_move.is_none() && prev_move.type() == move::NORMAL) {
                                 m_heuristic->counter_move[m_board.heights[prev_move.to()]][prev_move.to()] = best_move;
                             }
 

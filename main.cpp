@@ -24,7 +24,7 @@ struct uci {
     explicit uci() {}
 
     void loop() {
-        tt tt{32};
+        tt table{32};
 
         while (true) {
             std::string line;
@@ -37,7 +37,7 @@ struct uci {
                 std::cout << "version 1.0.0\n";
                 std::cout << "ok\n";
             } else if (command == "newgame") {
-                tt.reset();
+                table.reset();
                 std::cout << "ok\n";
             } else if (command == "go") {
                 int64_t time = 10000000000000;
@@ -49,14 +49,26 @@ struct uci {
                     moves.push_back(move::of_string(parts[i]));
 
                 auto board = movegen::create_board(moves);
-                board.display();
-                engine eng{board, &tt};
+                engine eng{board, &table};
                 auto result = eng.search(100, 200);
                 std::cout << "bestmove " << result.m.str() << std::endl;
             } else {
                 std::cout << "Unknown command '" << command << "'\n";
             }
         }
+    }
+};
+
+struct fake_uci {
+    tt table{32};
+
+    void newgame() {}
+
+    move search(int64_t time, const std::vector<move> &moves) {
+        auto board = movegen::create_board(moves);
+        engine eng{board, &table};
+        auto result = eng.search(10000, 20000);
+        return result.m;
     }
 };
 
@@ -177,7 +189,7 @@ struct runner {
 
     std::mt19937_64 gen;
 
-    explicit runner(const std::string &alpha, const std::string &beta) : alpha{alpha}, beta{beta} {
+    explicit runner(const std::string &alpha, const std::string &beta) : alpha(alpha), beta(beta) {
         std::random_device dev;
         gen = std::mt19937_64(dev());
     }
@@ -267,7 +279,17 @@ struct runner {
     }
 };
 
+void profile() {
+    runner run{"", ""};
+    std::atomic<int> num = 0;
+    while (true) {
+        run.round(num);
+    }
+}
+
 int main(int argc, char **argv) {
+    // profile();
+    // exit(0);
     // check for runner
     if (argc >= 4 && std::string{argv[1]} == "runner") {
         std::string alpha = std::string{argv[2]};
