@@ -257,8 +257,8 @@ constexpr std::array<int, 64> SQUARE_VALUE = {
     -50, -30, -30, -30, -30, -30, -30, -50,
     -30, -20, 000, 000, 000, 000, -20, -30,
     -30, 000, 020, 020, 020, 020, 000, -30,
-    -30, 000, 020, 060, 060, 020, 000, -30,
-    -30, 000, 020, 060, 060, 020, 000, -30,
+    -30, 000, 020, 050, 050, 020, 000, -30,
+    -30, 000, 020, 050, 050, 020, 000, -30,
     -30, 000, 020, 020, 020, 020, 000, -30,
     -30, -20, 000, 000, 000, 000, -20, -30,
     -50, -30, -30, -30, -30, -30, -30, -50,
@@ -282,6 +282,21 @@ struct evaluator {
         }
     }
 
+    static int nearby(uint64_t M) {
+        uint64_t up = M >> 8;
+        uint64_t down = M << 8;
+        // Masking ensures bits on the left edge don't wrap to the right of the row above
+        uint64_t left = (M & 0xFEFEFEFEFEFEFEFEULL) >> 1;
+        uint64_t right = (M & 0x7F7F7F7F7F7F7F7FULL) << 1;
+
+        int count = 0;
+        count += std::popcount(M & up);
+        count += std::popcount(M & down);
+        count += std::popcount(M & left);
+        count += std::popcount(M & right);
+        return count / 2;
+    }
+
     int evaluate(const board &board, bool draw) {
         assert(board.get_state(true) == NONE);
 
@@ -298,6 +313,11 @@ struct evaluator {
                 total -= pst[i][board.heights[i]];
             }
         }
+
+        // pair bonus
+        int pairs = nearby(board.occ_with_height(board.side2move, 1, 2)) -
+                    nearby(board.occ_with_height(board.side2move ^ 1, 1, 2));
+        total -= pairs * 20;
 
         // drop tempo
         if (board.is_drop()) {

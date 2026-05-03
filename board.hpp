@@ -530,6 +530,20 @@ struct board {
         return {.side = NONE, .height = 0};
     }
 
+    uint64_t occ_with_height(int side, int low, int high) const {
+        uint64_t mask = occ[side];
+        uint64_t out = 0;
+        while (mask) {
+            int i = __builtin_ctzll(mask);
+            mask ^= (1ull << i);
+
+            if (heights[i] >= low && heights[i] <= high)
+                out |= (1ull << i);
+        }
+
+        return out;
+    }
+
     bool is_drop() const { return moves < DROPS; }
 
     bool is_legal(const move &m) const {
