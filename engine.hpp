@@ -492,10 +492,10 @@ struct movepick {
                         moves.insert(moves.end(), std::make_move_iterator(quiets.begin()),
                                      std::make_move_iterator(quiets.end()));
 
-                        // move counter_move = move::none();
-                        // if (!m_prev_move.is_none()) {
-                        //     counter_move = m_heur.counter_move[m_board.heights[m_prev_move.to()]][m_prev_move.to()];
-                        // }
+                        move counter_move = move::none();
+                        if (!m_prev_move.is_none()) {
+                            counter_move = m_heur.counter_move[m_board.heights[m_prev_move.to()]][m_prev_move.to()];
+                        }
 
                         // score moves
                         for (int i = move_ptr; i < moves.size(); ++i) {
@@ -519,8 +519,8 @@ struct movepick {
 
                             m.score = m_heur.main_history[m.square][m.to()].get_value();
 
-                            // if (m == counter_move)
-                            //     m.score += 20000;
+                            if (m == counter_move)
+                                m.score += 20000;
                         }
 
                         sort_moves(moves, move_ptr, moves.size());
@@ -706,7 +706,7 @@ struct engine {
             return 0;
 
         // terminal check
-        int state = m_board.get_state();
+        int state = m_board.get_state(true);
         if (state != NONE) {
             if (state == DRAW)
                 return VALUE_DRAW;
@@ -721,17 +721,17 @@ struct engine {
             return evaluate(true);
         }
 
-        if (m_board.is_lost()) {
-            return MATED_IN(ss->ply);
-        }
-
         // draw check
         int rep = m_board.is_repetition(ss->ply);
         if (rep) {
             if (rep == 1)
-                return VALUE_DRAW;
+                return evaluate(true);
 
-            return evaluate(true);
+            return VALUE_DRAW;
+        }
+
+        if (m_board.is_lost()) {
+            return MATED_IN(ss->ply);
         }
 
         alpha = std::max(alpha, MATED_IN(ss->ply));
@@ -863,7 +863,7 @@ struct engine {
             return 0;
 
         // terminal check
-        int state = m_board.get_state();
+        int state = m_board.get_state(true);
         if (state != NONE) {
             if (state == DRAW)
                 return VALUE_DRAW;
@@ -884,6 +884,15 @@ struct engine {
 
         bool is_root = ss->ply == 0 && is_pv_node;
 
+        // repetition
+        int rep = m_board.is_repetition(ss->ply);
+        if (!is_root && rep) {
+            if (rep == 1)
+                return evaluate(true);
+
+            return VALUE_DRAW;
+        }
+
         if (!is_root && m_board.is_lost()) {
             return MATED_IN(ss->ply);
         }
@@ -896,14 +905,6 @@ struct engine {
                 return alpha;
         }
 
-        // repetition
-        int rep = m_board.is_repetition(ss->ply);
-        if (!is_root && rep) {
-            if (rep == 1)
-                return VALUE_DRAW;
-
-            return evaluate(true);
-        }
 
         // tt lookup
         uint64_t key = m_board.get_hash();
