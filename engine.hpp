@@ -257,6 +257,8 @@ struct evaluator {
     int pst[64][13];
 
     explicit evaluator() {
+        const std::array<int, 13> heights = {0, 0, 0, 10, 20, 30, -10, -40, -50, -70, -70, -80, -100};
+
         // create pst
         for (int i = 0; i < 64; ++i) {
             int row = i / 8;
@@ -265,10 +267,7 @@ struct evaluator {
             int sq_value = sq * 5;
 
             for (int j = 0; j < 13; ++j) {
-                int height_value = j * 100;
-                if (j > 6) {
-                    height_value -= (j - 6) * 50;
-                }
+                int height_value = j * 100 + heights[j];
                 pst[i][j] = sq_value + height_value;
             }
         }
@@ -305,7 +304,6 @@ struct evaluator {
             int contempt = (state == DRAW ? 0 : state == board.side2move ? 1 : -1);
             total += contempt * dist;
         }
-
         return total;
     }
 };
