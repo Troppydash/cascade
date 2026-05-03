@@ -294,21 +294,34 @@ constexpr std::array<int, 64> SQUARE_VALUE = {
     -30, -20, 000, 000, 000, 000, -20, -30,
     -50, -30, -30, -30, -30, -30, -30, -50,
 };
+
+constexpr std::array<int, 64> SQUARE_VALUE_EG = {
+    -20, -10, -10, -10, -10, -10, -10, -20,
+    -10, -10, 000, 000, 000, 000, -10, -10,
+    -10, 000, 020, 020, 020, 020, 000, -10,
+    -10, 000, 020, 020, 020, 020, 000, -10,
+    -10, 000, 020, 020, 020, 020, 000, -10,
+    -10, 000, 020, 020, 020, 020, 000, -10,
+    -10, -10, 000, 000, 000, 000, -10, -10,
+    -20, -10, -10, -10, -10, -10, -10, -20,
+};
 // clang-format on
 
 // TODO: make this inc
 struct evaluator {
     // note that 100 is 1 piece
     int pst[64][13];
+    int pst_eg[64][13];
 
     explicit evaluator() {
-
         // create pst
         for (int i = 0; i < 64; ++i) {
             int sq_value = SQUARE_VALUE[i];
+            int sq_value_eg = SQUARE_VALUE_EG[i];
             for (int j = 0; j < 13; ++j) {
                 int height_value = j * 100 + HEIGHT_OFFSET[j];
                 pst[i][j] = sq_value + height_value;
+                pst_eg[i][j] = sq_value_eg + height_value;
             }
         }
     }
@@ -331,7 +344,20 @@ struct evaluator {
     int evaluate(const board &board, bool draw) {
         assert(board.get_state(true) == NONE);
 
-        int total = 0;
+        double pst_total = 0;
+        double eg = 0.0;
+        if (!board.is_drop()) {
+            int height = 0;
+            uint64_t occ = board.occ[0] | board.occ[1];
+            while (occ) {
+                int i = __builtin_ctzll(occ);
+                occ ^= (1ull << i);
+
+                height += board.heights[i];
+            }
+
+            eg = 1.0 - height / 24.0;
+        }
 
         uint64_t occ = board.occ[0] | board.occ[1];
         while (occ) {
@@ -339,11 +365,13 @@ struct evaluator {
             occ ^= (1ull << i);
 
             if (board.occ[board.side2move] & (1ull << i)) {
-                total += pst[i][board.heights[i]];
+                pst_total += pst[i][board.heights[i]] * (1.0 - eg) + eg * pst_eg[i][board.heights[i]];
             } else {
-                total -= pst[i][board.heights[i]];
+                pst_total -= pst[i][board.heights[i]] * (1.0 - eg) + eg * pst_eg[i][board.heights[i]];
             }
         }
+
+        int total = std::round(pst_total);
 
         // pair bonus
         int pairs = nearby(board.occ_with_height(board.side2move, 1, 2)) -
@@ -352,7 +380,7 @@ struct evaluator {
 
         if (board.is_drop()) {
             if (board.moves + 1 != DROPS)
-                total -= 200;
+                total -= 300;
             else
                 total += 20;
         } else {
