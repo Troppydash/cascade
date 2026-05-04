@@ -105,6 +105,7 @@ struct tt {
         move m;
         int8_t flag;
         bool pv;
+        int age;
 
         void reset() {
             static_score = VALUE_NONE;
@@ -112,6 +113,7 @@ struct tt {
             depth = UNINIT_DEPTH;
             m = move::none();
             flag = NO_FLAG;
+            age = 0;
         }
 
         data get(uint64_t hash, int ply, int depth, int alpha, int beta) {
@@ -159,12 +161,12 @@ struct tt {
                     .pv = false};
         }
 
-        void set(uint64_t hash, int flag, int score, int ply, int depth, move m, int static_score, bool pv) {
+        void set(uint64_t hash, int flag, int score, int ply, int depth, move m, int static_score, bool pv, int age) {
             if (!m.is_none() || this->hash != hash) {
                 this->m = m;
             }
 
-            if (flag == EXACT_FLAG || this->hash != hash || (depth + 5 + pv) > this->depth) {
+            if (flag == EXACT_FLAG || this->hash != hash || (depth + 5 + pv) > this->depth || age > this->age) {
                 this->hash = hash;
                 this->depth = depth;
                 this->static_score = static_score;
@@ -178,12 +180,14 @@ struct tt {
                 this->score = score;
                 this->flag = flag;
                 this->pv = pv;
+                this->age = age;
             }
         }
     };
 
     int size;
     entry *entries;
+    int age = 0;
 
     explicit tt(int mb) {
         size = mb * 1024 * 1024 / sizeof(entry);
@@ -193,6 +197,7 @@ struct tt {
     }
 
     void reset() {
+        age = 0;
         for (int i = 0; i < size; ++i)
             entries[i].reset();
     }
@@ -362,7 +367,7 @@ struct evaluator {
                 height += board.heights[i];
             }
 
-            eg = 1.0 - height / 24.0;
+            eg = 1.0 - height / 23.0;
         }
 
         uint64_t occ = board.occ[0] | board.occ[1];
@@ -917,7 +922,7 @@ struct engine {
             adjusted_static_score = best_score = corrected;
 
             entry->set(key, NO_FLAG, VALUE_NONE, ss->ply, UNSEARCHED_DEPTH, move::none(), unadjusted_static_score,
-                       false);
+                       false, m_tt->age);
         }
 
         // standing pat
@@ -992,7 +997,7 @@ struct engine {
         int flag = best_score >= beta ? BETA_FLAG : ALPHA_FLAG;
 
         entry->set(key, flag, best_score, ss->ply, QDEPTH, best_move, unadjusted_static_score,
-                   tt_data.hit && tt_data.pv);
+                   tt_data.hit && tt_data.pv, m_tt->age);
 
         return best_score;
     }
@@ -1099,7 +1104,7 @@ struct engine {
             ss->static_eval = adjusted_static_score = corrected;
 
             entry->set(key, NO_FLAG, VALUE_NONE, ss->ply, UNSEARCHED_DEPTH, move::none(), unadjusted_static_score,
-                       ss->tt_pv);
+                       ss->tt_pv, m_tt->age);
         }
 
         bool improving = false;
@@ -1179,7 +1184,7 @@ struct engine {
 
                     if (score >= probcut_beta) {
                         entry->set(key, BETA_FLAG, score, ss->ply, probcut_depth + 1, m, unadjusted_static_score,
-                                   tt_pv);
+                                   tt_pv, m_tt->age);
                         return score - probcut_beta + beta;
                     }
                 }
@@ -1451,7 +1456,7 @@ struct engine {
         int flag = best_score >= beta ? BETA_FLAG : is_pv_node && !best_move.is_none() ? EXACT_FLAG : ALPHA_FLAG;
 
         if (!has_excluded) {
-            entry->set(key, flag, best_score, ss->ply, depth, best_move, unadjusted_static_score, tt_pv);
+            entry->set(key, flag, best_score, ss->ply, depth, best_move, unadjusted_static_score, tt_pv, m_tt->age);
         }
 
         // update correction history
@@ -1484,6 +1489,7 @@ struct engine {
         sel_depth = 0;
 
         m_timer.start(opt_time, max_time);
+        m_tt->age += 1;
 
         // setup search stack
         for (int i = 0; i < SS_HEAD; ++i) {
