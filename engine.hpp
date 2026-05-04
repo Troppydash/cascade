@@ -1507,9 +1507,9 @@ struct engine {
             int alpha = -INF;
             int beta = INF;
 
-            int window = 50 + res.score * res.score / 13000;
+            int window = 70 + res.score * res.score / 13000;
 
-            if (depth > 5) {
+            if (depth >= 5) {
                 alpha = std::max(-INF, res.score - window);
                 beta = std::min(INF, res.score + window);
             }

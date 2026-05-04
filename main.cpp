@@ -306,7 +306,7 @@ int main(int argc, char **argv) {
         std::string beta = std::string{argv[3]};
         std::atomic<int> num = 0;
 
-        int thread_count = 24;
+        int thread_count = 26;
         std::vector<std::thread> threads;
         std::mutex res_lock;
         result res{};
